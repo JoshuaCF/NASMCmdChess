@@ -1,0 +1,17 @@
+8
+O-O
+1
+O-O-O
+1
+O-O-P
+0
+OOOOP
+0
+OOP
+0
+OOOP
+0
+OP
+0
+O
+0

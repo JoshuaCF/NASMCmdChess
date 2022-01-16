@@ -332,17 +332,16 @@ _parseMove:
 	je		.kingside
 	
 	jmp		.invalid		; If the length doesn't match kingside or queenside length, but it starts with 'O', the input is invalid
-	
 .queenside:
 	mov		edx, [ebx+1]
 	cmp		edx, '-O-O'		; Convenient way to check four characters
-	mov dword	[castling], 2		; castling=2 is queenside castling (it's okay if it jumps to invalid after this -- this will get ignored)
+	mov byte	[castling], 2		; castling=2 is queenside castling (it's okay if it jumps to invalid after this -- this will get ignored)
 	je		.valid
 	jmp		.invalid
 .kingside:
 	mov		dx, [ebx+1]
 	cmp		dx, '-O'		; Same as above but with two characters
-	mov dword	[castling], 1		; castling=1 is kingside castling
+	mov byte	[castling], 1		; castling=1 is kingside castling
 	je		.valid
 	jmp		.invalid
 	

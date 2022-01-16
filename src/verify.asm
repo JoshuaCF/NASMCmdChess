@@ -4,144 +4,97 @@
 	extern		_checkMove
 	
 	extern		_printf
+	extern		_fopen
+	extern		_fclose
+	extern		_feof
+	extern		_fscanf
 	
 	section		.code
-msg1:	db		"O-O", 0x0
-msg2:	db		"O-O-O", 0x0
-msg3:	db		"O-O-P", 0x0
-msg4:	db		"OOOOP", 0x0
-msg5:	db		"OOP", 0x0
-msg6:	db		"OOOP", 0x0
-msg7:	db		"OP", 0x0
-msg8:	db		"O", 0x0
 checkMove_failed:
 	db		"checkMove returned %d for %s. It should have been %d", 0xD, 0xA, 0x0
+test_fmt:
+	db		"%s", 0x0
+num_fmt:
+	db		"%d", 0x0
+file_name:
+	db		"tests.txt", 0x0
+file_perms:
+	db		"r", 0x0
 
 	section		.bss
-test_input:
-	resb		10
+test_bfr:
+	resb		256
+expected_bfr:
+	resb		256
+num_tests:
+	resd		1
+file_handle:
+	resd		1
 
 	section		.text
 _verify:
-	call		_verify_checkMove
-	
-	ret
-
-_verify_checkMove:
 .prolog:
 	push		ebx
+	push		esi
+	push		edi
 	
-	; Castling checks (unfortunately, I don't know a good way to loop this)
-	push		1			; First two tests should be marked as valid
-	push		msg1			; Param for checkMove
-	push		0			; Param for checkMove
-	call		.castling
+	; Open the file of test inputs
+	push		file_perms
+	push		file_name
+	call		_fopen
 	add		esp, 8
 	
-	push		msg2
-	push		0
-	call		.castling
+	mov		[file_handle], eax
+	
+	; The first set of tests are for checkMove, read how many tests there are
+	push		num_tests
+	push		num_fmt
+	push dword	[file_handle]
+	call		_fscanf
 	add		esp, 12
 	
-	push		0			; The next six should be invalid
-	push		msg3
-	push		0
-	call		.castling
-	add		esp, 8
+	mov		ebx, 0
+.checkMove_loop:
+	; Loop for as many tests as there are, reading the tests and checking them
+	cmp		ebx, [num_tests]
+	jge		.checkMove_loop_end
 	
-	push		msg4
-	push		0
-	call		.castling
-	add		esp, 8
-	
-	push		msg5
-	push		0
-	call		.castling
-	add		esp, 8
-	
-	push		msg6
-	push		0
-	call		.castling
-	add		esp, 8
-	
-	push		msg7
-	push		0
-	call		.castling
-	add		esp, 8
-	
-	push		msg8
-	push		0
-	call		.castling
+	push		test_bfr
+	push		test_fmt
+	push dword	[file_handle]
+	call		_fscanf
 	add		esp, 12
 	
-	; Basic pawn move checks (this will need to be modified later)
-	; The inputs for checkMove won't change, so I'll just push them now
-	push		test_input
+	push		expected_bfr
+	push		num_fmt
+	push dword	[file_handle]
+	call		_fscanf
+	add		esp, 12
+	
+	push dword	[expected_bfr]		; expected_bfr will be used for many different things -- in this case, it stores an integer, so it makes sense to pass by value
+	push		test_bfr
 	push		0
+	call		_verify_checkMove
+	add		esp, 12
 	
-	mov byte	[test_input+2], 0x0
-	
-	mov		bl, 'a'
-.valid_pawns_outer:
-	mov		bh, '2'
-.valid_pawns_inner:
-	mov		[test_input], bl
-	mov		[test_input+1], bh
-	call		_checkMove
-	
-	cmp		eax, 1
-	je		.valid_pawns_skip
-	
-	push		1
-	push		test_input
-	push		eax
-	push		checkMove_failed
-	call		_printf
-	add		esp, 16
-	
-.valid_pawns_skip:
-	inc		bh
-	cmp		bh, '7'
-	jle		.valid_pawns_inner
-	inc		bl
-	cmp		bl, 'h'
-	jle		.valid_pawns_outer
-	
-	; Pawn promotion checks
-	mov byte	[test_input+4], 0x0
-	
-	mov		bl, 'a'
-.valid_promotions:
-	mov		[test_input], bl
-	mov byte	[test_input+1], '1'
-	mov byte	[test_input+2], '='
-	mov byte	[test_input+3], 'N'
-	call		_checkMove
-	
-	cmp		eax, 1
-	je		.valid_promotions_skip
-	
-	push		1
-	push		test_input
-	push		eax
-	push		checkMove_failed
-	call		_printf
-	add		esp, 16
-	
-.valid_promotions_skip:
-	inc		bl
-	cmp		bl, 'h'
-	jle		.valid_promotions
-	
-	add		esp, 8			; Clean up those arguments from before the loops
+	inc		ebx
+	jmp		.checkMove_loop
+.checkMove_loop_end:
 	
 .epilog:
+	push dword	[file_handle]
+	call		_fclose
+	add		esp, 4
+	
+	pop		edi
+	pop		esi
 	pop		ebx
 	
 	ret
-	
-.castling:
-	; I probably should add more comments to this
+
+; bool verify_checkMove(boardState* board, char* input, int expected)
+_verify_checkMove:
+.prolog:
 	push		ebp
 	mov		ebp, esp
 	
@@ -151,7 +104,7 @@ _verify_checkMove:
 	add		esp, 8
 	
 	cmp		eax, [ebp+16]
-	je		.castling_skip
+	je		.epilog
 	
 	push dword	[ebp+16]
 	push dword	[ebp+12]
@@ -160,6 +113,6 @@ _verify_checkMove:
 	call		_printf
 	add		esp, 16
 	
-.castling_skip:
+.epilog:
 	pop		ebp
 	ret
