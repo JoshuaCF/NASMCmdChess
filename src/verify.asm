@@ -6,7 +6,6 @@
 	extern		_printf
 	extern		_fopen
 	extern		_fclose
-	extern		_feof
 	extern		_fscanf
 	
 	section		.code
