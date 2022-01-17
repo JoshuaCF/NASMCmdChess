@@ -1,6 +1,9 @@
 def main():
+	valid_promotions = ["Q", "R", "B", "N"]
+	valid_pieces = ["K", "Q", "R", "B", "N"]
+	
 	with open("bin\\tests.txt", "w") as f:
-		f.write("152\n")  # This will have to be changed as I add more tests. I'll probably compute this manually.
+		f.write("792\n")  # This will have to be changed as I add more tests. I'll probably compute this manually.
 		
 		# Castling test cases -- these are done manually
 		# 8 test cases
@@ -40,7 +43,6 @@ def main():
 				f.write("1\n")
 		
 		# Pawn promotion test cases
-		valid_promotions = ["Q", "R", "B", "N"]
 		for i in range(file, end_file):  # Loops 8 times
 			for j in valid_promotions:  # Loops 4 times, 2 cases each
 				# Rank 1 promotions
@@ -71,6 +73,16 @@ def main():
 			
 			f.write(f"z{i}\n")
 			f.write("0\n")
+			
+		# Movements of all the pieces to any particular square, as well as captures at any particular square
+		for piece in valid_pieces:  # Loops 5 times
+			for i in range(file, end_file):  # Loops 8 times
+				for j in range(1, 9):  # Loops 8 times, 2 cases each
+					f.write(f"{piece}{chr(i)}{j}\n")
+					f.write(f"1\n")
+					
+					f.write(f"{piece}x{chr(i)}{j}\n")
+					f.write(f"1\n")
 
 
 if __name__ == "__main__":
