@@ -1,5 +1,7 @@
 ; This file will be responsible for ensuring that a listed move is valid algebraic chess notation
 ; and that it can be made with the current board state
+%include "structs.asm"
+
 	global		_checkMove
 	
 	section		.bss
@@ -21,25 +23,58 @@ castling:
 	resb		1
 
 	section		.text
-; bool checkMove(boardState* board, char* input)
+; bool checkMove(game_state* board, player_move* pmove, char* input)
 _checkMove:
 .prolog:
 	push		ebp
 	mov		ebp, esp
 	; [ebp + 8] = arg 1
 	; [ebp + 12] = arg 2
+	; [ebp + 16] = arg 3
 	push		ebx
 	push		esi
 	push		edi
 	
 	; Parse the text into its components
-	push dword	[ebp+12]
+	push dword	[ebp+16]
 	call		_parseMove
 	add		esp, 4
 	
 	; If parseMove returns 0 in EAX, then the text is improperly formatted
 	cmp		eax, 0
 	je		.epilog
+	
+	; If the board pointer is null, then just jump to the final bits
+	mov		ebx, [ebp+8]
+	cmp		ebx, 0
+	je		.fill_pmove
+	
+.fill_pmove:
+	; If the move pointer isn't null, copy the move info over
+	mov		ebx, [ebp+12]		; ebx is now the pointer to the player_move struct
+	cmp		ebx, 0
+	je		.epilog
+	
+	mov		dl, [piece]
+	mov		[ebx+pm_piece], dl
+	
+	mov		dl, [start_file]
+	mov		[ebx+pm_start_file], dl
+	
+	mov		dl, [start_rank]
+	mov		[ebx+pm_start_rank], dl
+	
+	mov		dl, [destination_file]
+	mov		[ebx+pm_destination_file], dl
+	
+	mov		dl, [destination_rank]
+	mov		[ebx+pm_destination_rank], dl
+	
+	mov		dl, [promotion]
+	mov		[ebx+pm_promotion], dl
+	
+	mov		dl, [castling]
+	mov		[ebx+pm_castling], dl
 	
 .epilog:
 	pop		edi

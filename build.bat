@@ -6,7 +6,7 @@ FOR /F "tokens=*" %%a IN (files.txt) DO CALL :make %%a
 GOTO skip
 
 :make
-nasm -f win32 src/%1.asm
+nasm -f win32 -i src/ src/%1.asm
 SET "objs=%objs%src/%1.obj "
 EXIT /B 0
 

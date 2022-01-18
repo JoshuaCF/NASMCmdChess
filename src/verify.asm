@@ -73,8 +73,9 @@ _verify:
 	push dword	[expected_bfr]		; expected_bfr will be used for many different things -- in this case, it stores an integer, so it makes sense to pass by value
 	push		test_bfr
 	push		0
+	push		0
 	call		_verify_checkMove
-	add		esp, 12
+	add		esp, 16
 	
 	inc		ebx
 	jmp		.checkMove_loop
@@ -91,22 +92,23 @@ _verify:
 	
 	ret
 
-; bool verify_checkMove(boardState* board, char* input, int expected)
+; bool verify_checkMove(boardState* board, player_move* pmove, char* input, int expected)
 _verify_checkMove:
 .prolog:
 	push		ebp
 	mov		ebp, esp
 	
+	push dword	[ebp+16]
 	push dword	[ebp+12]
 	push dword	[ebp+8]
 	call		_checkMove
-	add		esp, 8
+	add		esp, 12
 	
-	cmp		eax, [ebp+16]
+	cmp		eax, [ebp+20]
 	je		.epilog
 	
+	push dword	[ebp+20]
 	push dword	[ebp+16]
-	push dword	[ebp+12]
 	push		eax
 	push		checkMove_failed
 	call		_printf
