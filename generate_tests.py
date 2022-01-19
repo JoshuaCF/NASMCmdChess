@@ -63,35 +63,35 @@ def main():
 		# Valid castling tests (2 cases)
 		
 		f.write("O-O\n")
-		f.write(f"{chr(0)}\n")  # This is ugly, but since this is going to be read as characters I need to write null characters
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write("1\n")
+		f.write(f"{chr(0)}")  # This is ugly, but since this is going to be read as characters I need to write null characters
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(1)}\n")
 		
 		f.write("O-O-O\n")
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write(f"{chr(0)}\n")
-		f.write("2\n")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(0)}")
+		f.write(f"{chr(2)}\n")
 		
 		# Pawn move test cases
 		for i in range(file, end_file):  # Loops 8 times
 			for j in range(2, 8):  # Loops 6 times
 				f.write(chr(i))
 				f.write(f"{j}\n")
-				f.write("P\n")
-				f.write(f"{chr(i)}\n")
+				f.write("P")
+				f.write(f"{chr(i)}")
+				f.write(f"{chr(0)}")
+				f.write(f"{chr(i)}")
+				f.write(f"{j}")
+				f.write(f"{chr(0)}")
 				f.write(f"{chr(0)}\n")
-				f.write(f"{chr(i)}\n")
-				f.write(f"{j}\n")
-				f.write(f"{chr(0)}\n")
-				f.write("0\n")
 				
 		
 		# Pawn promotion test cases
@@ -100,46 +100,46 @@ def main():
 				# Rank 1 promotions
 				f.write(chr(i))
 				f.write(f"1={j}\n")
-				f.write("P\n")
-				f.write(f"{chr(i)}\n")
+				f.write("P")
+				f.write(f"{chr(i)}")
+				f.write(f"{chr(0)}")
+				f.write(f"{chr(i)}")
+				f.write("1")
+				f.write(f"{j}")
 				f.write(f"{chr(0)}\n")
-				f.write(f"{chr(i)}\n")
-				f.write("1\n")
-				f.write(f"{j}\n")
-				f.write("0\n")
 				
 				# Rank 8 promotions
 				f.write(chr(i))
 				f.write(f"8={j}\n")
-				f.write("P\n")
-				f.write(f"{chr(i)}\n")
+				f.write("P")
+				f.write(f"{chr(i)}")
+				f.write(f"{chr(0)}")
+				f.write(f"{chr(i)}")
+				f.write("8")
+				f.write(f"{j}")
 				f.write(f"{chr(0)}\n")
-				f.write(f"{chr(i)}\n")
-				f.write("8\n")
-				f.write(f"{j}\n")
-				f.write("0\n")
 			
 		# Movements of all the pieces to any particular square, as well as captures at any particular square
 		for piece in valid_pieces:  # Loops 5 times
 			for i in range(file, end_file):  # Loops 8 times
 				for j in range(1, 9):  # Loops 8 times, 2 cases each
 					f.write(f"{piece}{chr(i)}{j}\n")
-					f.write(f"{piece}\n")
+					f.write(f"{piece}")
+					f.write(f"{chr(0)}")
+					f.write(f"{chr(0)}")
+					f.write(f"{chr(i)}")
+					f.write(f"{j}")
+					f.write(f"{chr(0)}")
 					f.write(f"{chr(0)}\n")
-					f.write(f"{chr(0)}\n")
-					f.write(f"{chr(i)}\n")
-					f.write(f"{j}\n")
-					f.write(f"{chr(0)}\n")
-					f.write("0\n")
 					
 					f.write(f"{piece}x{chr(i)}{j}\n")
-					f.write(f"{piece}\n")
+					f.write(f"{piece}")
+					f.write(f"{chr(0)}")
+					f.write(f"{chr(0)}")
+					f.write(f"{chr(i)}")
+					f.write(f"{j}")
+					f.write(f"{chr(0)}")
 					f.write(f"{chr(0)}\n")
-					f.write(f"{chr(0)}\n")
-					f.write(f"{chr(i)}\n")
-					f.write(f"{j}\n")
-					f.write(f"{chr(0)}\n")
-					f.write("0\n")
 
 
 if __name__ == "__main__":

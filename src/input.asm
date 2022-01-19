@@ -98,6 +98,7 @@ _parseMove:
 	mov byte	[destination_file], 0
 	mov byte	[destination_rank], 0
 	mov byte	[promotion], 0
+	mov byte	[castling], 0
 	
 	; Algebraic notation:
 	; [piece][file][rank]["x"]destination[=piece]
