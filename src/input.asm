@@ -49,6 +49,8 @@ _checkMove:
 	cmp		ebx, 0
 	je		.fill_pmove
 	
+	
+	
 .fill_pmove:
 	; If the move pointer isn't null, copy the move info over
 	mov		ebx, [ebp+12]		; ebx is now the pointer to the player_move struct
@@ -396,4 +398,38 @@ _parseMove:
 	pop		ebx
 	pop		ebp
 	
+	ret
+	
+	section		.bss
+working_board:
+	resb		game_state_size
+	
+	section		.text
+	
+;bool verifyMove(*game_state board) -> a boolean representing whether or not the move is valid. also fills in missing move details
+_verifyMove:
+.prolog:
+	push		ebp
+	mov		ebp, esp
+	push		ebx
+	push		esi
+	push		edi
+	
+	; ebp+8 = *game_state board
+	
+	; Check what piece is being moved
+	; IF BISHOP, ROOK, OR QUEEN
+	; Iterate outwards from the destination square until a piece is hit or it goes off the board
+	; IF KNIGHT
+	; Check the 8 locations a knight could jump from, ensuring each location is on the board
+	; IF KING
+	; Check the 8 tiles adjacent to the destination square, ensuring each location is on the board
+	; If the piece found is the piece being moved and the rank/file matches any specified rank/file
+	
+	
+.epilog:
+	pop		edi
+	pop		esi
+	pop		ebx
+	pop		ebp
 	ret
