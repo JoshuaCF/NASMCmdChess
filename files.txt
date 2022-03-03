@@ -1,3 +1,4 @@
 main
 input
 verify
+checks

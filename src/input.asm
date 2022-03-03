@@ -4,6 +4,8 @@
 
 	global		_checkMove
 	
+	extern		_isCheck
+	
 	section		.bss
 in_len:
 	resd		1

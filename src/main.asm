@@ -4,6 +4,8 @@
 	
 	extern		_verify
 	extern		_checkMove
+	extern		_isStalemate
+	extern		_isCheckmate
 	
 	extern		_printf
 	extern		_scanf
@@ -39,23 +41,132 @@ at gs_board
 iend
 
 in_fmt:	db		"%31s", 0x0
-str_fmt:db		"%s", 0xD, 0xA, 0x0
+str_fmt:db		"%s", 0x0
+char_fmt:
+	db		"%c", 0x0
+move_prompt:
+	db		"Enter your move in algebraic notation: ", 0xD, 0xA, 0x0
+stalemate_prompt:
+	db		"%s has no legal moves, the game is a draw by stalemate.", 0xD, 0xA, 0x0
+checkmate_prompt:
+	db		"%s wins by checkmate.", 0xD, 0xA, 0x0
+black_str:
+	db		"Black", 0x0
+white_str:
+	db		"White", 0x0
 	
 	section		.bss
 in_bfr:	resb		32
 	
 	section		.text
 _main:
+.prolog:
+	push		ebp
+	mov		ebp, esp
+	push		ebx
+	push		esi
+	push		edi
+	
 	mov		eax, 0
 	call		_verify
 	
+	; Main gameplay loop
+.main_loop:
+	; Display the board
 	call		_printBoard
 	
-	ret
+	; Prompt for the user's next move
+	push		move_prompt
+	call		_printf
+	add		esp, 4
+	
+	; Take the user's input
+	push		in_bfr
+	push		in_fmt
+	call		_scanf
+	add		esp, 8
+	
+	; Parse and validate the move
+	; TODO, temporarily showing the move back to the user
+	push		in_bfr
+	push		str_fmt
+	call		_printf
+	add		esp, 8
+	
+	push		0xD
+	push		char_fmt
+	call		_printf
+	add		esp, 8
+	
+	push		0xA
+	push		char_fmt
+	call		_printf
+	add		esp, 8
+	
+	; Make the move on the board
+	; TODO
+	
+	; Switch the turn to the other player
+	mov		al, [board + gs_turn]
+	xor		al, 1
+	mov		[board + gs_turn], al
+	
+	; If the next player is in stalemate, declare the game a draw and exit the loop
+	push		board
+	call		_isStalemate
+	add		esp, 4
+	
+	cmp		eax, 1
+	je		.stalemate
+	
+	; If the next player is checkmated, declare the game a win and exit the loop
+	push		board
+	call		_isCheckmate
+	add		esp, 4
+	
+	cmp		eax, 1
+	je		.checkmate
+	
+	; Otherwise, the game continues
+	jmp		.main_loop
+	
+.stalemate:
+	mov		al, [board + gs_turn]
+	cmp		al, 0x00		; White's turn
+	je		.stalemate_white
+.stalemate_black:
+	push		black_str
+	jmp		.stalemate_show
+.stalemate_white:
+	push		white_str
+.stalemate_show:
+	push		stalemate_prompt
+	call		_printf
+	add		esp, 8
+	jmp		.epilog
 
-	section		.data
-char_fmt:
-	db		"%c", 0x0
+.checkmate:
+	mov		al, [board + gs_turn]
+	cmp		al, 0x00		; White's turn
+	je		.checkmate_white
+.checkmate_black:
+	push		white_str
+	jmp		.checkmate_show
+.checkmate_white:
+	push		black_str
+.checkmate_show:
+	push		checkmate_prompt
+	call		_printf
+	add		esp, 8
+	jmp		.epilog
+	
+.epilog:
+	pop		edi
+	pop		esi
+	pop		ebx
+	pop		ebp
+	
+	ret
 
 _printBoard:
 .prolog:
