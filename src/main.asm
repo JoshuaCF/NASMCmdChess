@@ -2,6 +2,8 @@
 	
 	global		_main
 	
+	global		_toIndex
+	
 	extern		_verify
 	extern		_checkMove
 	extern		_isStalemate
@@ -45,7 +47,7 @@ str_fmt:db		"%s", 0x0
 char_fmt:
 	db		"%c", 0x0
 move_prompt:
-	db		"Enter your move in algebraic notation: ", 0xD, 0xA, 0x0
+	db		"Enter your move in algebraic notation: ", 0xD, 0xA, 0xD, 0xA, 0x0
 stalemate_prompt:
 	db		"%s has no legal moves, the game is a draw by stalemate.", 0xD, 0xA, 0x0
 checkmate_prompt:
@@ -57,6 +59,8 @@ white_str:
 	
 	section		.bss
 in_bfr:	resb		32
+move_bfr:
+	resb		player_move_size
 	
 	section		.text
 _main:
@@ -68,7 +72,7 @@ _main:
 	push		edi
 	
 	mov		eax, 0
-	call		_verify
+	; call		_verify
 	
 	; Main gameplay loop
 .main_loop:
@@ -87,24 +91,39 @@ _main:
 	add		esp, 8
 	
 	; Parse and validate the move
-	; TODO, temporarily showing the move back to the user
 	push		in_bfr
-	push		str_fmt
-	call		_printf
-	add		esp, 8
+	push		move_bfr
+	push		board
+	call		_checkMove
+	add		esp, 12
 	
-	push		0xD
-	push		char_fmt
-	call		_printf
-	add		esp, 8
-	
-	push		0xA
-	push		char_fmt
-	call		_printf
-	add		esp, 8
+	; If the move was invalid for whatever reason, _checkMove should print out the error message. Jump back to the start and get a new move
+	cmp		eax, 0
+	je		.main_loop
 	
 	; Make the move on the board
-	; TODO
+	; Start rank should be multiplied by 8, then add the start file to get the index of the square
+	mov		eax, 0
+	mov		ebx, 0
+	
+	mov		al, [move_bfr + pm_start_file]
+	push		eax
+	mov		al, [move_bfr + pm_start_rank]
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		bl, [board + gs_board + eax]
+	mov byte	[board + gs_board + eax], 0x00
+	
+	mov		al, [move_bfr + pm_destination_file]
+	push		eax
+	mov		al, [move_bfr + pm_destination_rank]
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		[board + gs_board + eax], bl
 	
 	; Switch the turn to the other player
 	mov		al, [board + gs_turn]
@@ -287,6 +306,28 @@ _printBoard:
 .epilog:
 	pop		esi
 	pop		ebx
+	pop		ebp
+	
+	ret
+	
+;int toIndex(char rank, char file) -> returns the numerical index of the board tile that corresponds to the given rank and file
+_toIndex:
+.prolog:
+	push		ebp
+	mov		ebp, esp
+	
+	; ebp + 8 = char rank
+	; ebp + 12 = char file
+	
+	mov		eax, 0
+	
+	mov		al, [ebp + 8]
+	sub		al, '1'
+	shl		al, 3
+	add		al, [ebp + 12]
+	sub		al, 'a'
+
+.epilog:
 	pop		ebp
 	
 	ret

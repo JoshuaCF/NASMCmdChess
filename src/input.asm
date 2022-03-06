@@ -4,7 +4,15 @@
 
 	global		_checkMove
 	
+	extern		_printf
+	
+	extern		_toIndex
+	
 	extern		_isCheck
+	
+	section		.data
+err_failed_parse:
+	db		"Your input is in an invalid format. Try again.", 0xD, 0xA, 0x0
 	
 	section		.bss
 in_len:
@@ -51,7 +59,14 @@ _checkMove:
 	cmp		ebx, 0
 	je		.fill_pmove
 	
+	; Otherwise, fill out the details of the move and ensure it is a legal move
+	push dword	[ebp + 8]
+	call		_completeMove
+	add		esp, 4
 	
+	; If the move failed to be completed, return 0
+	cmp		eax, 0
+	je		.epilog
 	
 .fill_pmove:
 	; If the move pointer isn't null, copy the move info over
@@ -387,6 +402,10 @@ _parseMove:
 	
 	; An invalid input will jump here
 .invalid:
+	push		err_failed_parse
+	call		_printf
+	add		esp, 4
+
 	mov		eax, 0
 	jmp		.epilog
 	
@@ -402,14 +421,47 @@ _parseMove:
 	
 	ret
 	
+	section		.data
+knight_offsets:					; Easier to iterate over these than generate them imo
+	db		1,2
+	db		2,1
+	db		2,-1
+	db		1,-2
+	db		-1,-2
+	db		-2,-1
+	db		-2,1
+	db		-1,2
+king_offsets:
+	db		0,1
+	db		1,1
+	db		1,0
+	db		1,-1
+	db		0,-1
+	db		-1,-1
+	db		-1,0
+	db		-1,1
+no_piece_msg:
+	db		"No piece was found that could make that move.", 0xD, 0xA, 0x0
+ambiguous_msg:
+	db		"More than one piece could make that move.", 0xD, 0xA, 0x0
+	
 	section		.bss
 working_board:
 	resb		game_state_size
+potential_pieces_arr:
+	resw		8
+potential_pieces:
+	resb		1
+matched_index:
+	resb		1
+match_value:
+	resb		1
 	
 	section		.text
 	
-;bool verifyMove(*game_state board) -> a boolean representing whether or not the move is valid. also fills in missing move details
-_verifyMove:
+;bool completeMove(*game_state board) -> a boolean representing whether or not a piece can actually make the move.
+; Does not look for checks, it simply ensures a single valid piece could possibly move there and fills out the information for it
+_completeMove:
 .prolog:
 	push		ebp
 	mov		ebp, esp
@@ -419,15 +471,235 @@ _verifyMove:
 	
 	; ebp+8 = *game_state board
 	
+	; Set the team bits of match_value
+	mov		ebx, [ebp+8]
+	mov		al, [ebx+gs_turn]
+	cmp		al, 0			; If it's white turn
+	je		.white
+	cmp		al, 1			; If it's black's turn
+	je		.black
+.white:
+	mov		ah, 0b01000000
+	jmp		.determine_piece
+.black:
+	mov		ah, 0b10000000
+	
+.determine_piece:
 	; Check what piece is being moved
+	; Find where pieces exist and add them to a list of pieces that will be checked for the correct piece later
+	; IF PAWN
+	; ugh.
 	; IF BISHOP, ROOK, OR QUEEN
 	; Iterate outwards from the destination square until a piece is hit or it goes off the board
 	; IF KNIGHT
 	; Check the 8 locations a knight could jump from, ensuring each location is on the board
 	; IF KING
 	; Check the 8 tiles adjacent to the destination square, ensuring each location is on the board
-	; If the piece found is the piece being moved and the rank/file matches any specified rank/file
 	
+	mov byte	[potential_pieces], 0
+	
+	mov		al, [piece]
+	
+	cmp		al, 'P'
+	je		.pawn
+	
+	cmp		al, 'N'
+	je		.knight
+	
+	cmp		al, 'K'
+	je		.king
+	
+	cmp		al, 'B'
+	je		.diagonal
+	
+	cmp		al, 'Q'
+	je		.diagonal
+	
+	cmp		al, 'R'
+	je		.orthogonal
+	
+.pawn:						; TODO
+	jmp		.locate_matches
+	
+.knight:					; TODO
+	; Complete the match value
+	or		ah, 0b00000010
+	mov		[match_value], ah
+
+	; Loop through each possible offset of the destination tile, computing the index
+	; If the offset results in a position off the board, skip the rest of the iteration
+	mov		ebx, [ebp+8]
+	add		ebx, gs_board
+	
+	mov		eax, 0
+	mov		ecx, 0
+.knight_loop:
+	; Compute the potential starting file
+	mov		al, [destination_file]
+	add		al, [knight_offsets + ecx]
+	
+	; Ensure this is still on the board
+	cmp		al, 'a'
+	jl		.knight_continue
+	cmp		al, 'h'
+	jg		.knight_continue
+	
+	; Store it in the potential pieces array
+	; NOTE: the potential pieces array is being used for this as just a temporary storage location
+	; if the location actually ends up containing a piece to get checked later, then conveniently the data is already where it needs to be saved
+	; we just have to increment the amount of items in the array so it won't get destroyed on the next iteration
+	mov		edx, 0
+	mov		dl, [potential_pieces]
+	mov		[potential_pieces_arr + edx*2], al
+	
+	; Compute the potential starting rank
+	mov		al, [destination_rank]
+	add		al, [knight_offsets + ecx + 1]
+	
+	; Ensure this is still on the board
+	cmp		al, '1'
+	jl		.knight_continue
+	cmp		al, '8'
+	jg		.knight_continue
+	
+	; Store it in the potential pieces array
+	mov		[potential_pieces_arr + edx*2 + 1], al
+	
+	; Save the loop variable
+	push		ecx
+	
+	; Compute the index of the potential start position
+	mov		al, [potential_pieces_arr + edx*2]
+	push		eax
+	mov		al, [potential_pieces_arr + edx*2 + 1]
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Recover the loop variable
+	pop		ecx
+	
+	; Check if the computed board position is empty
+	mov		dl, [ebx + eax]
+	cmp		dl, 0x00
+	je		.knight_continue
+	
+	; If it isn't empty, increment the potential_pieces amount so that the computed start values are saved
+	mov		dl, [potential_pieces]
+	inc		dl
+	mov		[potential_pieces], dl
+	
+.knight_continue:
+	add		ecx, 2
+	cmp		ecx, 16
+	jl		.knight_loop
+	
+	jmp		.locate_matches
+	
+.king:						; TODO
+	jmp		.locate_matches
+	
+.diagonal:					; TODO
+	jmp		.locate_matches
+
+.orthogonal:					; TODO
+	jmp		.locate_matches
+	
+.locate_matches:
+	mov byte	[matched_index], -1
+	
+	; If the number of potential pieces is zero, jump to err_no_piece
+	cmp byte	[potential_pieces], 0
+	je		.err_no_piece
+	
+	; Iterate through the list of potential pieces, looking for matches
+	mov		ecx, 0
+.match_loop:
+	; If there is a start_file, ensure it matches
+	mov		al, [start_file]
+	cmp		al, 0
+	je		.start_file_skip
+	
+	cmp		al, [potential_pieces_arr + ecx*2]
+	jne		.match_loop_continue
+	
+.start_file_skip:
+	; If there is a start_rank, ensure it matches
+	mov		al, [start_rank]
+	cmp byte	al, 0
+	je		.start_rank_skip
+	
+	cmp byte	al, [potential_pieces_arr + ecx*2 + 1]
+	jne		.match_loop_continue
+	
+.start_rank_skip:
+	; Save the counter variable
+	push		ecx
+	
+	; Compute the index of the tile
+	mov		eax, 0
+	mov		al, [potential_pieces_arr + ecx*2]
+	push		eax
+	mov		al, [potential_pieces_arr + ecx*2 + 1]
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Restore the counter variable
+	pop		ecx
+	
+	; If a piece is found that matches the piece value and matched_index is not -1, store its index in matched_index
+	mov		ebx, [ebp+8]
+	add		ebx, gs_board		; Board pointer
+	
+	mov		dl, [match_value]
+	cmp		dl, [ebx+eax]
+	jne		.match_loop_continue
+	
+	cmp byte	[matched_index], -1
+	; If a match is found and there was already a match, jump to err_ambiguous
+	jne		.err_ambiguous
+	
+	mov		[matched_index], cl
+	
+.match_loop_continue:
+	inc		ecx
+	cmp		cl, [potential_pieces]
+	jl		.match_loop
+	
+	; If no piece was found, jump to err_no_piece
+	cmp byte	[matched_index], -1
+	je		.err_no_piece
+	
+	; Otherwise, fill in the move details
+	mov		eax, 0
+	mov		ebx, 0
+	mov		bl, [matched_index]
+	
+	mov		al, [potential_pieces_arr + ebx*2]
+	mov		[start_file], al
+	mov		al, [potential_pieces_arr + ebx*2 + 1]
+	mov		[start_rank], al
+	
+	jmp		.valid
+
+.valid:
+	mov		eax, 1
+	jmp		.epilog
+	
+.err_no_piece:
+	push		no_piece_msg
+	call		_printf
+	add		esp, 4
+	jmp		.invalid
+
+.err_ambiguous:
+	push		ambiguous_msg
+	call		_printf
+	add		esp, 4
+	
+.invalid:
+	mov		eax, 0
 	
 .epilog:
 	pop		edi
