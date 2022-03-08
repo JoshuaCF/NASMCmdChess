@@ -125,6 +125,85 @@ _main:
 	
 	mov		[board + gs_board + eax], bl
 	
+	; If it was a pawn move that went across two ranks, then the pawn moved twice and is a valid target for en passant
+	mov		al, [move_bfr + pm_piece]
+	cmp		al, 'P'
+	jne		.en_passant_skip
+	mov		al, [move_bfr + pm_destination_rank]
+	sub		al, [move_bfr + pm_start_rank]
+	cmp		al, 2
+	je		.en_passant_set
+	cmp		al, -2
+	je		.en_passant_set
+	
+	; If it gets here, there is no valid en passant so clear it from the game state
+	mov byte	[board + gs_passant_file], 0
+	jmp		.en_passant_skip
+	
+.en_passant_set:
+	mov		al, [move_bfr + pm_start_file]
+	mov		[board + gs_passant_file], al
+	
+.en_passant_skip:	
+	; Disable castling where applicable
+	; If a start or destination file matches a corner, disable castling to that corner
+	mov		al, [move_bfr + pm_start_rank]
+	mov		ah, [move_bfr + pm_start_file]
+	cmp		ax, 'a1'
+	je		.white_queenside
+	cmp		ax, 'h1'
+	je		.white_kingside
+	cmp		ax, 'a8'
+	je		.black_queenside
+	cmp		ax, 'h8'
+	je		.black_kingside
+	
+	mov		ah, [move_bfr + pm_destination_rank]
+	mov		al, [move_bfr + pm_destination_file]
+	cmp		ax, 'a1'
+	je		.white_queenside
+	cmp		ax, 'h1'
+	je		.white_kingside
+	cmp		ax, 'a8'
+	je		.black_queenside
+	cmp		ax, 'h8'
+	je		.black_kingside
+	
+.white_queenside:
+	mov byte	[board + gs_wh_queenside], 0
+	jmp		.white_castling
+.white_kingside:
+	mov byte	[board + gs_wh_kingside], 0
+	jmp		.white_castling
+.black_queenside:
+	mov byte	[board + gs_bl_queenside], 0
+	jmp		.white_castling
+.black_kingside:
+	mov byte	[board + gs_bl_kingside], 0
+	jmp		.white_castling
+	
+	; If the king is moved, disable all castling for that player
+.white_castling:
+	mov		al, [board + gs_turn]
+	cmp		al, 0x00
+	jne		.black_castling
+	mov		al, [move_bfr + pm_piece]
+	cmp		al, 'K'
+	jne		.black_castling
+	mov byte	[board + gs_wh_queenside], 0
+	mov byte	[board + gs_wh_kingside], 0
+	jmp		.castling_skip
+.black_castling:
+	mov		al, [board + gs_turn]
+	cmp		al, 0x01
+	jne		.castling_skip
+	mov		al, [move_bfr + pm_piece]
+	cmp		al, 'K'
+	jne		.castling_skip
+	mov byte	[board + gs_bl_queenside], 0
+	mov byte	[board + gs_bl_kingside], 0
+
+.castling_skip:
 	; Switch the turn to the other player
 	mov		al, [board + gs_turn]
 	xor		al, 1

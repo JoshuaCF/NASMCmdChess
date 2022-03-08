@@ -13,6 +13,8 @@
 	section		.data
 err_failed_parse:
 	db		"Your input is in an invalid format. Try again.", 0xD, 0xA, 0x0
+err_captures_same:
+	db		"You can not capture your own pieces.", 0xD, 0xA, 0x0
 	
 	section		.bss
 in_len:
@@ -59,6 +61,51 @@ _checkMove:
 	cmp		ebx, 0
 	je		.fill_pmove
 	
+	; If the destination square contains a piece that belongs to the current player, the move fails
+	mov		eax, 0
+	mov		al, [destination_file]
+	push		eax
+	mov		al, [destination_rank]
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; al contains the two high value bits, which represent team
+	; 0b01000000 = white piece
+	; 0b10000000 = black piece
+	mov		al, [ebx + eax + gs_board]
+	cmp		al, 0x00
+	je		.complete_move
+	and		al, 0b11000000
+	
+	; Doing some weirdness here... this will cut down on the amount of comparisons I have to do though.
+	; Load into bl the value that represents whose turn it is
+	; 0b00000000 = white's turn
+	; 0b00000001 = black's turn
+	mov		bl, [ebx + gs_turn]
+	
+	; Increment this
+	; 0b00000001 = white's turn
+	; 0b00000010 = black's turn
+	inc		bl
+	
+	; Shift left 6 bits
+	; 0b01000000 = white's turn
+	; 0b10000000 = black's turn
+	shl		bl, 6
+	
+	; Compare with the team bits of the piece
+	; If it matches, then the player is moving onto their own piece
+	cmp		al, bl
+	jne		.complete_move
+	
+	push		err_captures_same
+	call		_printf
+	add		esp, 4
+	mov		eax, 0
+	jmp		.epilog
+	
+.complete_move:
 	; Otherwise, fill out the details of the move and ensure it is a legal move
 	push dword	[ebp + 8]
 	call		_completeMove
@@ -521,6 +568,9 @@ _completeMove:
 .pawn:						; TODO
 	jmp		.locate_matches
 	
+.king:						; TODO
+	jmp		.locate_matches
+	
 .knight:					; TODO
 	; Complete the match value
 	or		ah, 0b00000010
@@ -594,9 +644,6 @@ _completeMove:
 	cmp		ecx, 16
 	jl		.knight_loop
 	
-	jmp		.locate_matches
-	
-.king:						; TODO
 	jmp		.locate_matches
 	
 .diagonal:					; TODO
