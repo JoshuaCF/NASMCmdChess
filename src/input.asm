@@ -568,14 +568,25 @@ _completeMove:
 .pawn:						; TODO
 	jmp		.locate_matches
 	
-.king:						; TODO
-	jmp		.locate_matches
+.king:
+	; Complete the match value
+	or		ah, 0b00100000
+	mov		[match_value], ah
 	
-.knight:					; TODO
+	; Set esi to the array that will be used for the 8 offsets
+	mov		esi, king_offsets
+	
+	jmp		.offset_compute
+	
+.knight:
 	; Complete the match value
 	or		ah, 0b00000010
 	mov		[match_value], ah
+	
+	; Set esi to the array that will be used for the 8 offsets
+	mov		esi, knight_offsets
 
+.offset_compute:
 	; Loop through each possible offset of the destination tile, computing the index
 	; If the offset results in a position off the board, skip the rest of the iteration
 	mov		ebx, [ebp+8]
@@ -583,16 +594,16 @@ _completeMove:
 	
 	mov		eax, 0
 	mov		ecx, 0
-.knight_loop:
+.offset_loop:
 	; Compute the potential starting file
 	mov		al, [destination_file]
-	add		al, [knight_offsets + ecx]
+	add		al, [esi + ecx]
 	
 	; Ensure this is still on the board
 	cmp		al, 'a'
-	jl		.knight_continue
+	jl		.offset_continue
 	cmp		al, 'h'
-	jg		.knight_continue
+	jg		.offset_continue
 	
 	; Store it in the potential pieces array
 	; NOTE: the potential pieces array is being used for this as just a temporary storage location
@@ -604,13 +615,13 @@ _completeMove:
 	
 	; Compute the potential starting rank
 	mov		al, [destination_rank]
-	add		al, [knight_offsets + ecx + 1]
+	add		al, [esi + ecx + 1]
 	
 	; Ensure this is still on the board
 	cmp		al, '1'
-	jl		.knight_continue
+	jl		.offset_continue
 	cmp		al, '8'
-	jg		.knight_continue
+	jg		.offset_continue
 	
 	; Store it in the potential pieces array
 	mov		[potential_pieces_arr + edx*2 + 1], al
@@ -632,17 +643,17 @@ _completeMove:
 	; Check if the computed board position is empty
 	mov		dl, [ebx + eax]
 	cmp		dl, 0x00
-	je		.knight_continue
+	je		.offset_continue
 	
 	; If it isn't empty, increment the potential_pieces amount so that the computed start values are saved
 	mov		dl, [potential_pieces]
 	inc		dl
 	mov		[potential_pieces], dl
 	
-.knight_continue:
+.offset_continue:
 	add		ecx, 2
 	cmp		ecx, 16
-	jl		.knight_loop
+	jl		.offset_loop
 	
 	jmp		.locate_matches
 	
