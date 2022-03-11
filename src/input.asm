@@ -493,8 +493,6 @@ ambiguous_msg:
 	db		"More than one piece could make that move.", 0xD, 0xA, 0x0
 	
 	section		.bss
-working_board:
-	resb		game_state_size
 potential_pieces_arr:
 	resw		8
 potential_pieces:
@@ -557,13 +555,13 @@ _completeMove:
 	je		.king
 	
 	cmp		al, 'B'
-	je		.diagonal
-	
-	cmp		al, 'Q'
-	je		.diagonal
+	je		.bishop
 	
 	cmp		al, 'R'
-	je		.orthogonal
+	je		.rook
+	
+	cmp		al, 'Q'
+	je		.queen
 	
 .pawn:						; TODO
 	jmp		.locate_matches
@@ -576,6 +574,7 @@ _completeMove:
 	; Set esi to the array that will be used for the 8 offsets
 	mov		esi, king_offsets
 	
+	; Jump to offset checks
 	jmp		.offset_compute
 	
 .knight:
@@ -585,6 +584,33 @@ _completeMove:
 	
 	; Set esi to the array that will be used for the 8 offsets
 	mov		esi, knight_offsets
+	
+	; Jump to offset checks
+	jmp		.offset_compute
+	
+.bishop:
+	; Complete the match value
+	or		ah, 0b00000100
+	mov		[match_value], ah
+	
+	; Jump to diagonal checks
+	jmp		.diagonal_compute
+	
+.rook:
+	; Complete the match value
+	or		ah, 0b00001000
+	mov		[match_value], ah
+	
+	; Jump to orthogonal checks
+	jmp		.orthogonal_compute
+	
+.queen:
+	; Complete the match value
+	or		ah, 0b00010000
+	mov		[match_value], ah
+	
+	; Jump to diagonal checks (diagonal checks will check for queen and proceed to orthogonal checks if it is)
+	jmp		.diagonal_compute
 
 .offset_compute:
 	; Loop through each possible offset of the destination tile, computing the index
@@ -657,10 +683,330 @@ _completeMove:
 	
 	jmp		.locate_matches
 	
-.diagonal:					; TODO
+.diagonal_compute:
+	; esi = board = gs_board
+	mov		esi, [ebp + 8]
+	add		esi, gs_board
+	
+	; Four loops for each diagonal direction
+	; Lots of code copying here, but I don't really care.
+	mov		bh, [destination_file]
+	mov		bl, [destination_rank]
+	
+	; Towards top right
+.diagonal_loop1:
+	inc		bh
+	cmp		bh, 'a'
+	jl		.diagonal_loop1_exit
+	cmp		bh, 'h'
+	jg		.diagonal_loop1_exit
+	
+	inc		bl
+	cmp		bl, '1'
+	jl		.diagonal_loop1_exit
+	cmp		bl, '8'
+	jg		.diagonal_loop1_exit
+	
+	mov		eax, 0
+	mov		al, bh
+	push		eax
+	mov		al, bl
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Check if the position is empty. Repeat if so
+	mov		al, [esi + eax]
+	cmp		al, 0x00
+	je		.diagonal_loop1
+	
+	; Otherwise, add the position to potential_pieces_arr
+	mov		eax, 0
+	mov		al, [potential_pieces]
+	
+	mov		[potential_pieces_arr + eax*2], bh
+	mov		[potential_pieces_arr + eax*2 + 1], bl
+	
+	inc		al
+	mov		[potential_pieces], al
+.diagonal_loop1_exit:
+
+	mov		bh, [destination_file]
+	mov		bl, [destination_rank]
+	
+	; Towards top left
+.diagonal_loop2:
+	dec		bh
+	cmp		bh, 'a'
+	jl		.diagonal_loop2_exit
+	cmp		bh, 'h'
+	jg		.diagonal_loop2_exit
+	
+	inc		bl
+	cmp		bl, '1'
+	jl		.diagonal_loop2_exit
+	cmp		bl, '8'
+	jg		.diagonal_loop2_exit
+	
+	mov		eax, 0
+	mov		al, bh
+	push		eax
+	mov		al, bl
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Check if the position is empty. Repeat if so
+	mov		al, [esi + eax]
+	cmp		al, 0x00
+	je		.diagonal_loop2
+	
+	; Otherwise, add the position to potential_pieces_arr
+	mov		eax, 0
+	mov		al, [potential_pieces]
+	
+	mov		[potential_pieces_arr + eax*2], bh
+	mov		[potential_pieces_arr + eax*2 + 1], bl
+	
+	inc		al
+	mov		[potential_pieces], al
+.diagonal_loop2_exit:
+
+	mov		bh, [destination_file]
+	mov		bl, [destination_rank]
+	
+	; Towards bottom right
+.diagonal_loop3:
+	inc		bh
+	cmp		bh, 'a'
+	jl		.diagonal_loop3_exit
+	cmp		bh, 'h'
+	jg		.diagonal_loop3_exit
+	
+	dec		bl
+	cmp		bl, '1'
+	jl		.diagonal_loop3_exit
+	cmp		bl, '8'
+	jg		.diagonal_loop3_exit
+	
+	mov		eax, 0
+	mov		al, bh
+	push		eax
+	mov		al, bl
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Check if the position is empty. Repeat if so
+	mov		al, [esi + eax]
+	cmp		al, 0x00
+	je		.diagonal_loop3
+	
+	; Otherwise, add the position to potential_pieces_arr
+	mov		eax, 0
+	mov		al, [potential_pieces]
+	
+	mov		[potential_pieces_arr + eax*2], bh
+	mov		[potential_pieces_arr + eax*2 + 1], bl
+	
+	inc		al
+	mov		[potential_pieces], al
+.diagonal_loop3_exit:
+
+	mov		bh, [destination_file]
+	mov		bl, [destination_rank]
+	
+	; Towards bottom left
+.diagonal_loop4:
+	dec		bh
+	cmp		bh, 'a'
+	jl		.diagonal_loop4_exit
+	cmp		bh, 'h'
+	jg		.diagonal_loop4_exit
+	
+	dec		bl
+	cmp		bl, '1'
+	jl		.diagonal_loop4_exit
+	cmp		bl, '8'
+	jg		.diagonal_loop4_exit
+	
+	mov		eax, 0
+	mov		al, bh
+	push		eax
+	mov		al, bl
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Check if the position is empty. Repeat if so
+	mov		al, [esi + eax]
+	cmp		al, 0x00
+	je		.diagonal_loop4
+	
+	; Otherwise, add the position to potential_pieces_arr
+	mov		eax, 0
+	mov		al, [potential_pieces]
+	
+	mov		[potential_pieces_arr + eax*2], bh
+	mov		[potential_pieces_arr + eax*2 + 1], bl
+	
+	inc		al
+	mov		[potential_pieces], al
+.diagonal_loop4_exit:
+
+	; If the piece is a queen, also do an orthogonal check
+	mov		al, [piece]
+	cmp		al, 'Q'
+	je		.orthogonal_compute
+	
 	jmp		.locate_matches
 
-.orthogonal:					; TODO
+.orthogonal_compute:
+	; esi = board = gs_board
+	mov		esi, [ebp + 8]
+	add		esi, gs_board
+	
+	; Four loops for each diagonal direction
+	; Lots of code copying here, but I don't really care.
+	mov		bh, [destination_file]
+	mov		bl, [destination_rank]
+	
+	; Towards top
+.orthogonal_loop1:
+	inc		bl
+	cmp		bl, '1'
+	jl		.orthogonal_loop1_exit
+	cmp		bl, '8'
+	jg		.orthogonal_loop1_exit
+	
+	mov		eax, 0
+	mov		al, bh
+	push		eax
+	mov		al, bl
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Check if the position is empty. Repeat if so
+	mov		al, [esi + eax]
+	cmp		al, 0x00
+	je		.orthogonal_loop1
+	
+	; Otherwise, add the position to potential_pieces_arr
+	mov		eax, 0
+	mov		al, [potential_pieces]
+	
+	mov		[potential_pieces_arr + eax*2], bh
+	mov		[potential_pieces_arr + eax*2 + 1], bl
+	
+	inc		al
+	mov		[potential_pieces], al
+.orthogonal_loop1_exit:
+
+	mov		bh, [destination_file]
+	mov		bl, [destination_rank]
+	
+	; Towards bottom
+.orthogonal_loop2:
+	dec		bl
+	cmp		bl, '1'
+	jl		.orthogonal_loop2_exit
+	cmp		bl, '8'
+	jg		.orthogonal_loop2_exit
+	
+	mov		eax, 0
+	mov		al, bh
+	push		eax
+	mov		al, bl
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Check if the position is empty. Repeat if so
+	mov		al, [esi + eax]
+	cmp		al, 0x00
+	je		.orthogonal_loop2
+	
+	; Otherwise, add the position to potential_pieces_arr
+	mov		eax, 0
+	mov		al, [potential_pieces]
+	
+	mov		[potential_pieces_arr + eax*2], bh
+	mov		[potential_pieces_arr + eax*2 + 1], bl
+	
+	inc		al
+	mov		[potential_pieces], al
+.orthogonal_loop2_exit:
+
+	mov		bh, [destination_file]
+	mov		bl, [destination_rank]
+	
+	; Towards right
+.orthogonal_loop3:
+	inc		bh
+	cmp		bh, 'a'
+	jl		.orthogonal_loop3_exit
+	cmp		bh, 'h'
+	jg		.orthogonal_loop3_exit
+	
+	mov		eax, 0
+	mov		al, bh
+	push		eax
+	mov		al, bl
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Check if the position is empty. Repeat if so
+	mov		al, [esi + eax]
+	cmp		al, 0x00
+	je		.orthogonal_loop3
+	
+	; Otherwise, add the position to potential_pieces_arr
+	mov		eax, 0
+	mov		al, [potential_pieces]
+	
+	mov		[potential_pieces_arr + eax*2], bh
+	mov		[potential_pieces_arr + eax*2 + 1], bl
+	
+	inc		al
+	mov		[potential_pieces], al
+.orthogonal_loop3_exit:
+
+	mov		bh, [destination_file]
+	mov		bl, [destination_rank]
+	
+	; Towards left
+.orthogonal_loop4:
+	dec		bh
+	cmp		bh, 'a'
+	jl		.orthogonal_loop4_exit
+	cmp		bh, 'h'
+	jg		.orthogonal_loop4_exit
+	
+	mov		eax, 0
+	mov		al, bh
+	push		eax
+	mov		al, bl
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	; Check if the position is empty. Repeat if so
+	mov		al, [esi + eax]
+	cmp		al, 0x00
+	je		.orthogonal_loop4
+	
+	; Otherwise, add the position to potential_pieces_arr
+	mov		eax, 0
+	mov		al, [potential_pieces]
+	
+	mov		[potential_pieces_arr + eax*2], bh
+	mov		[potential_pieces_arr + eax*2 + 1], bl
+	
+	inc		al
+	mov		[potential_pieces], al
+.orthogonal_loop4_exit:
 	jmp		.locate_matches
 	
 .locate_matches:
