@@ -1,81 +1,54 @@
-; This file will be responsible for ensuring that a listed move is valid algebraic chess notation
-; and that it can be made with the current board state
 %include "structs.asm"
 
 	global		_checkMove
+	global		_parseMove
+	global		_completeMove
+	global		_makeMove
+	global		_printBoard
+	global		_toIndex
 	
 	extern		_printf
 	
-	extern		_toIndex
-	
 	extern		_isCheck
-	
-	section		.data
-err_failed_parse:
-	db		"Your input is in an invalid format. Try again.", 0xD, 0xA, 0x0
-err_captures_same:
-	db		"You can not capture your own pieces.", 0xD, 0xA, 0x0
-	
-	section		.bss
-in_len:
-	resd		1
-piece:	
-	resb		1
-start_file:
-	resb		1
-start_rank:
-	resb		1
-destination_file:
-	resb		1
-destination_rank:
-	resb		1
-promotion:
-	resb		1
-castling:
-	resb		1
 
 	section		.text
-; bool checkMove(game_state* board, player_move* pmove, char* input)
+; int checkMove(game_state* board, player_move* pmove)
+; 0 = OK
+; 1 = error - invalid castling
+; 2 = error - self capturing
+; 3 = error - in check
 _checkMove:
 .prolog:
 	push		ebp
 	mov		ebp, esp
 	; [ebp + 8] = arg 1
 	; [ebp + 12] = arg 2
-	; [ebp + 16] = arg 3
 	push		ebx
 	push		esi
 	push		edi
 	
-	; Parse the text into its components
-	push dword	[ebp+16]
-	call		_parseMove
-	add		esp, 4
-	
-	; If parseMove returns 0 in EAX, then the text is improperly formatted
-	cmp		eax, 0
-	je		.epilog
-	
-	; If the board pointer is null, then just jump to the final bits
-	mov		ebx, [ebp+8]
-	cmp		ebx, 0
-	je		.fill_pmove
-	
+	mov		edi, [ebp+12]		; pmove ptr
+	; TODO: If the move is castling, the checks are a bit different
+.validate_castling:
+
+.look_for_self_captures:
 	; If the destination square contains a piece that belongs to the current player, the move fails
 	mov		eax, 0
-	mov		al, [destination_file]
+	mov		al, [edi + pm_destination_file]
 	push		eax
-	mov		al, [destination_rank]
+	mov		al, [edi + pm_destination_rank]
 	push		eax
 	call		_toIndex
 	add		esp, 8
+	
+	mov		ebx, [ebp+8]		; board ptr
 	
 	; al contains the two high value bits, which represent team
 	; 0b01000000 = white piece
 	; 0b10000000 = black piece
 	mov		al, [ebx + eax + gs_board]
 	cmp		al, 0x00
-	je		.complete_move
+	je		.look_for_check
 	and		al, 0b11000000
 	
 	; Doing some weirdness here... this will cut down on the amount of comparisons I have to do though.
@@ -97,50 +70,15 @@ _checkMove:
 	; Compare with the team bits of the piece
 	; If it matches, then the player is moving onto their own piece
 	cmp		al, bl
-	jne		.complete_move
+	jne		.look_for_check
+	jmp		.invalid_self_capture
 	
-	push		err_captures_same
-	call		_printf
-	add		esp, 4
-	mov		eax, 0
-	jmp		.epilog
-	
-.complete_move:
-	; Otherwise, fill out the details of the move and ensure it is a legal move
-	push dword	[ebp + 8]
-	call		_completeMove
-	add		esp, 4
-	
-	; If the move failed to be completed, return 0
-	cmp		eax, 0
-	je		.epilog
-	
-.fill_pmove:
-	; If the move pointer isn't null, copy the move info over
-	mov		ebx, [ebp+12]		; ebx is now the pointer to the player_move struct
-	cmp		ebx, 0
-	je		.epilog
-	
-	mov		dl, [piece]
-	mov		[ebx+pm_piece], dl
-	
-	mov		dl, [start_file]
-	mov		[ebx+pm_start_file], dl
-	
-	mov		dl, [start_rank]
-	mov		[ebx+pm_start_rank], dl
-	
-	mov		dl, [destination_file]
-	mov		[ebx+pm_destination_file], dl
-	
-	mov		dl, [destination_rank]
-	mov		[ebx+pm_destination_rank], dl
-	
-	mov		dl, [promotion]
-	mov		[ebx+pm_promotion], dl
-	
-	mov		dl, [castling]
-	mov		[ebx+pm_castling], dl
+.look_for_check:
+
+.invalid_castling:	
+.invalid_self_capture:
+.invalid_in_check:
+.valid:
 	
 .epilog:
 	pop		edi
@@ -149,7 +87,11 @@ _checkMove:
 	pop		ebp
 	ret
 
-; bool parseMove(char* input) -> returns whether or not parsing failed
+	section		.bss
+in_len:
+	resd		1
+
+; bool parseMove(char* input, player_move* pmove) -> returns whether or not parsing failed
 _parseMove:
 .prolog:
 	push		ebp
@@ -157,14 +99,19 @@ _parseMove:
 	push		ebx
 	push		esi
 	push		edi
+	
+	; [ebp+8] = input
+	; [ebp+12] = pmove
 
-	mov byte	[piece], 0
-	mov byte	[start_file], 0
-	mov byte	[start_rank], 0
-	mov byte	[destination_file], 0
-	mov byte	[destination_rank], 0
-	mov byte	[promotion], 0
-	mov byte	[castling], 0
+	mov		edi, [ebp+12]		; Pointer to pmove
+
+	mov byte	[edi + pm_piece], 0
+	mov byte	[edi + pm_start_file], 0
+	mov byte	[edi + pm_start_rank], 0
+	mov byte	[edi + pm_destination_file], 0
+	mov byte	[edi + pm_destination_rank], 0
+	mov byte	[edi + pm_promotion], 0
+	mov byte	[edi + pm_castling], 0
 	
 	; Algebraic notation:
 	; [piece][file][rank]["x"]destination[=piece]
@@ -220,7 +167,7 @@ _parseMove:
 	
 .not_pawn:
 	; If we get here, it's not a pawn and the current letter is the piece
-	mov byte	[piece], dl
+	mov byte	[edi + pm_piece], dl
 	inc		ecx
 	
 	jmp		.parseDisambiguation
@@ -228,8 +175,8 @@ _parseMove:
 .pawn:
 	; If we get here, it's definitely a pawn move, starting on the file of this character
 	; We can go ahead and do disambiguation stuff since pawns are a little weird
-	mov byte	[piece], 'P'
-	mov byte	[start_file], dl
+	mov byte	[edi + pm_piece], 'P'
+	mov byte	[edi + pm_start_file], dl
 	
 	; Pawn moves are always an even length (a4, axb4, a8=Q, axb8=Q)
 	mov		edx, 0
@@ -297,7 +244,7 @@ _parseMove:
 	jg		.disamRank
 	
 	; The current character is a file disambiguation character
-	mov		[start_file], dl
+	mov		[edi + pm_start_file], dl
 	inc		ecx
 	mov		dl, [ebx+ecx]
 	
@@ -322,7 +269,7 @@ _parseMove:
 	jg		.parseDestination
 	
 	; The current character is a rank disambiguation character
-	mov		[start_rank], dl
+	mov		[edi + pm_start_rank], dl
 	inc		ecx
 	mov		dl, [ebx+ecx]
 	
@@ -351,7 +298,7 @@ _parseMove:
 	cmp		dl, 'h'
 	jg		.invalid
 	
-	mov		[destination_file], dl
+	mov		[edi + pm_destination_file], dl
 	
 	; Checking 1-8 for rank
 	inc		ecx
@@ -363,7 +310,7 @@ _parseMove:
 	cmp		dl, '8'
 	jg		.invalid
 	
-	mov		[destination_rank], dl
+	mov		[edi + pm_destination_rank], dl
 	
 	inc		ecx
 	
@@ -379,7 +326,7 @@ _parseMove:
 	jmp		.valid
 	
 .is_back_rank:
-	mov		dl, [piece]
+	mov		dl, [edi + pm_piece]
 	cmp		dl, 'P'
 	je		.parsePromotion
 	jmp		.valid			; If it's not a pawn and it's a backrank move, then don't worry about checking promotions
@@ -401,25 +348,25 @@ _parseMove:
 	cmp		dl, 'Q'
 	jne		.promotionSkip1
 	
-	mov		[promotion], dl
+	mov		[edi + pm_promotion], dl
 	jmp		.valid
 .promotionSkip1:
 	cmp		dl, 'R'
 	jne		.promotionSkip2
 	
-	mov		[promotion], dl
+	mov		[edi + pm_promotion], dl
 	jmp		.valid
 .promotionSkip2:
 	cmp		dl, 'B'
 	jne		.promotionSkip3
 	
-	mov		[promotion], dl
+	mov		[edi + pm_promotion], dl
 	jmp		.valid
 .promotionSkip3:
 	cmp		dl, 'N'
 	jne		.invalid		; If we're checking for the last valid character and it doesn't match, then it's invalid
 	
-	mov		[promotion],dl
+	mov		[edi + pm_promotion],dl
 	jmp		.valid
 	
 ; DETERMINING CASTLING
@@ -437,22 +384,18 @@ _parseMove:
 .queenside:
 	mov		edx, [ebx+1]
 	cmp		edx, '-O-O'		; Convenient way to check four characters
-	mov byte	[castling], 2		; castling=2 is queenside castling (it's okay if it jumps to invalid after this -- this will get ignored)
+	mov byte	[edi + pm_castling], 2		; castling=2 is queenside castling (it's okay if it jumps to invalid after this -- this will get ignored)
 	je		.valid
 	jmp		.invalid
 .kingside:
 	mov		dx, [ebx+1]
 	cmp		dx, '-O'		; Same as above but with two characters
-	mov byte	[castling], 1		; castling=1 is kingside castling
+	mov byte	[edi + pm_castling], 1		; castling=1 is kingside castling
 	je		.valid
 	jmp		.invalid
 	
 	; An invalid input will jump here
 .invalid:
-	push		err_failed_parse
-	call		_printf
-	add		esp, 4
-
 	mov		eax, 0
 	jmp		.epilog
 	
@@ -487,10 +430,6 @@ king_offsets:
 	db		-1,-1
 	db		-1,0
 	db		-1,1
-no_piece_msg:
-	db		"No piece was found that could make that move.", 0xD, 0xA, 0x0
-ambiguous_msg:
-	db		"More than one piece could make that move.", 0xD, 0xA, 0x0
 	
 	section		.bss
 potential_pieces_arr:
@@ -504,8 +443,12 @@ match_value:
 	
 	section		.text
 	
-;bool completeMove(*game_state board) -> a boolean representing whether or not a piece can actually make the move.
+;bool completeMove(*game_state board) -> a boolean representing whether or not one piece was found that can make the move
 ; Does not look for checks, it simply ensures a single valid piece could possibly move there and fills out the information for it
+; ALSO SETS EDX DEPENDING ON WHETHER OR NOT ANY VALID MOVE WAS FOUND
+; edx = 1 means at least one piece could move there
+; edx = 0 means no piece could make the move
+; This will be useful for determining checks
 _completeMove:
 .prolog:
 	push		ebp
@@ -1020,7 +963,7 @@ _completeMove:
 	mov		ecx, 0
 .match_loop:
 	; If there is a start_file, ensure it matches
-	mov		al, [start_file]
+	mov		al, [move_bfr + pm_start_file]
 	cmp		al, 0
 	je		.start_file_skip
 	
@@ -1081,7 +1024,7 @@ _completeMove:
 	mov		bl, [matched_index]
 	
 	mov		al, [potential_pieces_arr + ebx*2]
-	mov		[start_file], al
+	mov		[move_bfr + pm_start_file], al
 	mov		al, [potential_pieces_arr + ebx*2 + 1]
 	mov		[start_rank], al
 	
@@ -1089,18 +1032,22 @@ _completeMove:
 
 .valid:
 	mov		eax, 1
+	mov		edx, 1
 	jmp		.epilog
 	
 .err_no_piece:
 	push		no_piece_msg
 	call		_printf
 	add		esp, 4
+	mov		edx, 0
+	
 	jmp		.invalid
 
 .err_ambiguous:
 	push		ambiguous_msg
 	call		_printf
 	add		esp, 4
+	mov		edx, 1
 	
 .invalid:
 	mov		eax, 0
@@ -1110,4 +1057,153 @@ _completeMove:
 	pop		esi
 	pop		ebx
 	pop		ebp
+	ret
+	
+;void printBoard(game_state* board)
+; Prints out the board passed
+_printBoard:
+.prolog:
+	push		ebp
+	mov		ebp, esp
+	push		ebx
+	push		esi
+	
+	; [ebp+8] = board
+	
+	mov		ebx, [ebp+8]
+	add		ebx, gs_board		; ebx contains a pointer to the board tiles
+	
+	add		ebx, 56			; I need to print backwards in sets of 8 to get it to display correctly
+	
+	; 00 000000
+	; Leftmost two bits represent piece color
+	; 10 = Black
+	; 01 = White
+	; Rightmost six bits represent piece type
+	; 100000 = King
+	; 010000 = Queen
+	; 001000 = Rook
+	; 000100 = Bishop
+	; 000010 = Knight
+	; 000001 = Pawn
+	
+	; Outer loop (loops rows)
+	mov		edx, 0
+.outer_loop:
+	; Inner loop
+	mov		ecx, 0
+.inner_loop:
+	mov		al, [ebx]
+	and		al, 0b00111111		; Mask to get the piece, disregarding color
+	
+.pawn:
+	cmp		al, 0b00000001		; Pawn
+	jne		.knight
+	mov		ah, 'P'
+	jmp		.color
+.knight:
+	cmp		al, 0b00000010		; Knight
+	jne		.bishop
+	mov		ah, 'N'
+	jmp		.color
+.bishop:
+	cmp		al, 0b00000100		; Bishop
+	jne		.rook
+	mov		ah, 'B'
+	jmp		.color
+.rook:
+	cmp		al, 0b00001000		; Rook
+	jne		.queen
+	mov		ah, 'R'
+	jmp		.color
+.queen:
+	cmp		al, 0b00010000		; Queen
+	jne		.king
+	mov		ah, 'Q'
+	jmp		.color
+.king:
+	cmp		al, 0b00100000		; King
+	jne		.empty
+	mov		ah, 'K'
+	jmp		.color
+.empty:
+	mov		ah, '-'
+	jmp		.print
+	
+.color:
+	mov		al, [ebx]
+	and		al, 0b11000000		; Mask to get the color, disregarding piece
+	cmp		al, 0b01000000
+	je		.print
+	cmp		al, 0b10000000
+	jne		.print
+	or		ah, 0b01100000
+	
+.print:
+	push		edx
+	push		ecx
+	
+	shr		eax, 8			; move ah to al
+	and		eax, 0x000000FF		; clear the upper bits
+	push		eax
+	push		char_fmt
+	call		_printf
+	add		esp, 8
+	
+	push		' '
+	push		char_fmt
+	call		_printf
+	add		esp, 8
+	
+	pop		ecx
+	pop		edx
+	
+	inc		ebx
+	inc		ecx
+	cmp		ecx, 8
+	jl		.inner_loop
+	
+	push		edx
+	push		ecx
+	
+	push		0xA
+	push		char_fmt
+	call		_printf
+	add		esp, 8
+	
+	pop		ecx
+	pop		edx
+	
+	inc		edx
+	sub		ebx, 16
+	cmp		edx, 8
+	jl		.outer_loop
+	
+.epilog:
+	pop		esi
+	pop		ebx
+	pop		ebp
+	
+	ret
+	
+;int toIndex(char rank, char file) -> returns the numerical index of the board tile that corresponds to the given rank and file
+_toIndex:
+.prolog:
+	push		ebp
+	mov		ebp, esp
+	
+	; ebp + 8 = char rank
+	; ebp + 12 = char file
+	
+	mov		eax, 0
+	
+	mov		al, [ebp + 8]
+	sub		al, '1'
+	shl		al, 3
+	add		al, [ebp + 12]
+	sub		al, 'a'
+
+.epilog:
+	pop		ebp
+	
 	ret

@@ -2,10 +2,15 @@
 	
 	global		_main
 	
-	global		_toIndex
-	
 	extern		_verify
+	
+	extern		_printBoard
 	extern		_checkMove
+	extern		_parseMove
+	extern		_makeMove
+	extern		_completeMove
+	extern		_toIndex
+	
 	extern		_isStalemate
 	extern		_isCheckmate
 	
@@ -48,6 +53,7 @@ in_fmt:	db		"%31s", 0x0
 str_fmt:db		"%s", 0x0
 char_fmt:
 	db		"%c", 0x0
+
 move_prompt:
 	db		"Enter your move in algebraic notation: ", 0xD, 0xA, 0xD, 0xA, 0x0
 stalemate_prompt:
@@ -58,6 +64,19 @@ black_str:
 	db		"Black", 0x0
 white_str:
 	db		"White", 0x0
+
+err_failed_parse:
+	db		"Your input is in an invalid format. Try again.", 0xD, 0xA, 0x0
+err_no_piece:
+	db		"No piece was found that could make that move.", 0xD, 0xA, 0x0
+err_ambiguous:
+	db		"More than one piece could make that move.", 0xD, 0xA, 0x0
+err_captures_same:
+	db		"You can not capture your own pieces.", 0xD, 0xA, 0x0
+err_no_castling:
+	db		"You can not castle this way.", 0xD, 0xA, 0x0
+err_in_check:
+	db		"This move leaves you in check.", 0xD, 0xA, 0x0
 	
 	section		.bss
 in_bfr:	resb		32
@@ -79,7 +98,9 @@ _main:
 	; Main gameplay loop
 .main_loop:
 	; Display the board
+	push		board
 	call		_printBoard
+	add		esp, 4
 	
 	; Prompt for the user's next move
 	push		move_prompt
@@ -268,147 +289,3 @@ _main:
 	
 	ret
 
-_printBoard:
-.prolog:
-	push		ebp
-	mov		ebp, esp
-	push		ebx
-	push		esi
-	
-	mov		ebx, board
-	add		ebx, gs_board		; ebx contains a pointer to the board
-	
-	add		ebx, 56			; I need to print backwards in sets of 8 to get it to display correctly
-	
-	; 00 000000
-	; Leftmost two bits represent piece color
-	; 10 = Black
-	; 01 = White
-	; Rightmost six bits represent piece type
-	; 100000 = King
-	; 010000 = Queen
-	; 001000 = Rook
-	; 000100 = Bishop
-	; 000010 = Knight
-	; 000001 = Pawn
-	
-	; Outer loop (loops rows)
-	mov		edx, 0
-.outer_loop:
-	; Inner loop
-	mov		ecx, 0
-.inner_loop:
-	mov		al, [ebx]
-	and		al, 0b00111111		; Mask to get the piece, disregarding color
-	
-.pawn:
-	cmp		al, 0b00000001		; Pawn
-	jne		.knight
-	mov		ah, 'P'
-	jmp		.color
-.knight:
-	cmp		al, 0b00000010		; Knight
-	jne		.bishop
-	mov		ah, 'N'
-	jmp		.color
-.bishop:
-	cmp		al, 0b00000100		; Bishop
-	jne		.rook
-	mov		ah, 'B'
-	jmp		.color
-.rook:
-	cmp		al, 0b00001000		; Rook
-	jne		.queen
-	mov		ah, 'R'
-	jmp		.color
-.queen:
-	cmp		al, 0b00010000		; Queen
-	jne		.king
-	mov		ah, 'Q'
-	jmp		.color
-.king:
-	cmp		al, 0b00100000		; King
-	jne		.empty
-	mov		ah, 'K'
-	jmp		.color
-.empty:
-	mov		ah, '-'
-	jmp		.print
-	
-.color:
-	mov		al, [ebx]
-	and		al, 0b11000000		; Mask to get the color, disregarding piece
-	cmp		al, 0b01000000
-	je		.print
-	cmp		al, 0b10000000
-	jne		.print
-	or		ah, 0b01100000
-	
-.print:
-	push		edx
-	push		ecx
-	
-	shr		eax, 8			; move ah to al
-	and		eax, 0x000000FF		; clear the upper bits
-	push		eax
-	push		char_fmt
-	call		_printf
-	add		esp, 8
-	
-	push		' '
-	push		char_fmt
-	call		_printf
-	add		esp, 8
-	
-	pop		ecx
-	pop		edx
-	
-	inc		ebx
-	inc		ecx
-	cmp		ecx, 8
-	jl		.inner_loop
-	
-	push		edx
-	push		ecx
-	
-	push		0xA
-	push		char_fmt
-	call		_printf
-	add		esp, 8
-	
-	pop		ecx
-	pop		edx
-	
-	inc		edx
-	sub		ebx, 16
-	cmp		edx, 8
-	jl		.outer_loop
-	
-.epilog:
-	pop		esi
-	pop		ebx
-	pop		ebp
-	
-	ret
-	
-;int toIndex(char rank, char file) -> returns the numerical index of the board tile that corresponds to the given rank and file
-_toIndex:
-.prolog:
-	push		ebp
-	mov		ebp, esp
-	
-	; ebp + 8 = char rank
-	; ebp + 12 = char file
-	
-	mov		eax, 0
-	
-	mov		al, [ebp + 8]
-	sub		al, '1'
-	shl		al, 3
-	add		al, [ebp + 12]
-	sub		al, 'a'
-
-.epilog:
-	pop		ebp
-	
-	ret
