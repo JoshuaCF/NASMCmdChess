@@ -90,7 +90,8 @@ _checkMove:
 	section		.bss
 in_len:
 	resd		1
-
+	
+	section		.text
 ; bool parseMove(char* input, player_move* pmove) -> returns whether or not parsing failed
 _parseMove:
 .prolog:
@@ -443,12 +444,10 @@ match_value:
 	
 	section		.text
 	
-;bool completeMove(*game_state board) -> a boolean representing whether or not one piece was found that can make the move
-; Does not look for checks, it simply ensures a single valid piece could possibly move there and fills out the information for it
-; ALSO SETS EDX DEPENDING ON WHETHER OR NOT ANY VALID MOVE WAS FOUND
-; edx = 1 means at least one piece could move there
-; edx = 0 means no piece could make the move
-; This will be useful for determining checks
+;int completeMove(game_state* board, player_move* pmove) -> a integer representing whether or not one piece was found that can make the move
+; 0 = OK
+; 1 = error - ambiguous move
+; 2 = error - no move
 _completeMove:
 .prolog:
 	push		ebp
@@ -457,7 +456,11 @@ _completeMove:
 	push		esi
 	push		edi
 	
-	; ebp+8 = *game_state board
+	; [ebp+8] = game_state* board
+	; [ebp+12] = player_move* pmove
+	
+	mov		edi, [ebp+12]		; pointer to pmove
+	; edi won't be modified for the entirety of this subroutine
 	
 	; Set the team bits of match_value
 	mov		ebx, [ebp+8]
@@ -486,7 +489,7 @@ _completeMove:
 	
 	mov byte	[potential_pieces], 0
 	
-	mov		al, [piece]
+	mov		al, [edi + pm_piece]
 	
 	cmp		al, 'P'
 	je		.pawn
@@ -565,7 +568,7 @@ _completeMove:
 	mov		ecx, 0
 .offset_loop:
 	; Compute the potential starting file
-	mov		al, [destination_file]
+	mov		al, [edi + pm_destination_file]
 	add		al, [esi + ecx]
 	
 	; Ensure this is still on the board
@@ -583,7 +586,7 @@ _completeMove:
 	mov		[potential_pieces_arr + edx*2], al
 	
 	; Compute the potential starting rank
-	mov		al, [destination_rank]
+	mov		al, [edi + pm_destination_rank]
 	add		al, [esi + ecx + 1]
 	
 	; Ensure this is still on the board
@@ -633,8 +636,8 @@ _completeMove:
 	
 	; Four loops for each diagonal direction
 	; Lots of code copying here, but I don't really care.
-	mov		bh, [destination_file]
-	mov		bl, [destination_rank]
+	mov		bh, [edi + pm_destination_file]
+	mov		bl, [edi + pm_destination_rank]
 	
 	; Towards top right
 .diagonal_loop1:
@@ -674,8 +677,8 @@ _completeMove:
 	mov		[potential_pieces], al
 .diagonal_loop1_exit:
 
-	mov		bh, [destination_file]
-	mov		bl, [destination_rank]
+	mov		bh, [edi + pm_destination_file]
+	mov		bl, [edi + pm_destination_rank]
 	
 	; Towards top left
 .diagonal_loop2:
@@ -715,8 +718,8 @@ _completeMove:
 	mov		[potential_pieces], al
 .diagonal_loop2_exit:
 
-	mov		bh, [destination_file]
-	mov		bl, [destination_rank]
+	mov		bh, [edi + pm_destination_file]
+	mov		bl, [edi + pm_destination_rank]
 	
 	; Towards bottom right
 .diagonal_loop3:
@@ -756,8 +759,8 @@ _completeMove:
 	mov		[potential_pieces], al
 .diagonal_loop3_exit:
 
-	mov		bh, [destination_file]
-	mov		bl, [destination_rank]
+	mov		bh, [edi + pm_destination_file]
+	mov		bl, [edi + pm_destination_rank]
 	
 	; Towards bottom left
 .diagonal_loop4:
@@ -798,7 +801,7 @@ _completeMove:
 .diagonal_loop4_exit:
 
 	; If the piece is a queen, also do an orthogonal check
-	mov		al, [piece]
+	mov		al, [edi + pm_piece]
 	cmp		al, 'Q'
 	je		.orthogonal_compute
 	
@@ -811,8 +814,8 @@ _completeMove:
 	
 	; Four loops for each diagonal direction
 	; Lots of code copying here, but I don't really care.
-	mov		bh, [destination_file]
-	mov		bl, [destination_rank]
+	mov		bh, [edi + pm_destination_file]
+	mov		bl, [edi + pm_destination_rank]
 	
 	; Towards top
 .orthogonal_loop1:
@@ -846,8 +849,8 @@ _completeMove:
 	mov		[potential_pieces], al
 .orthogonal_loop1_exit:
 
-	mov		bh, [destination_file]
-	mov		bl, [destination_rank]
+	mov		bh, [edi + pm_destination_file]
+	mov		bl, [edi + pm_destination_rank]
 	
 	; Towards bottom
 .orthogonal_loop2:
@@ -881,8 +884,8 @@ _completeMove:
 	mov		[potential_pieces], al
 .orthogonal_loop2_exit:
 
-	mov		bh, [destination_file]
-	mov		bl, [destination_rank]
+	mov		bh, [edi + pm_destination_file]
+	mov		bl, [edi + pm_destination_rank]
 	
 	; Towards right
 .orthogonal_loop3:
@@ -916,8 +919,8 @@ _completeMove:
 	mov		[potential_pieces], al
 .orthogonal_loop3_exit:
 
-	mov		bh, [destination_file]
-	mov		bl, [destination_rank]
+	mov		bh, [edi + pm_destination_file]
+	mov		bl, [edi + pm_destination_rank]
 	
 	; Towards left
 .orthogonal_loop4:
@@ -963,7 +966,7 @@ _completeMove:
 	mov		ecx, 0
 .match_loop:
 	; If there is a start_file, ensure it matches
-	mov		al, [move_bfr + pm_start_file]
+	mov		al, [edi + pm_start_file]
 	cmp		al, 0
 	je		.start_file_skip
 	
@@ -972,7 +975,7 @@ _completeMove:
 	
 .start_file_skip:
 	; If there is a start_rank, ensure it matches
-	mov		al, [start_rank]
+	mov		al, [edi + pm_start_rank]
 	cmp byte	al, 0
 	je		.start_rank_skip
 	
@@ -1024,33 +1027,22 @@ _completeMove:
 	mov		bl, [matched_index]
 	
 	mov		al, [potential_pieces_arr + ebx*2]
-	mov		[move_bfr + pm_start_file], al
+	mov		[edi + pm_start_file], al
 	mov		al, [potential_pieces_arr + ebx*2 + 1]
-	mov		[start_rank], al
+	mov		[edi + pm_start_rank], al
 	
 	jmp		.valid
 
 .valid:
+	mov		eax, 0
+	jmp		.epilog
+
+.err_ambiguous:
 	mov		eax, 1
-	mov		edx, 1
 	jmp		.epilog
 	
 .err_no_piece:
-	push		no_piece_msg
-	call		_printf
-	add		esp, 4
-	mov		edx, 0
-	
-	jmp		.invalid
-
-.err_ambiguous:
-	push		ambiguous_msg
-	call		_printf
-	add		esp, 4
-	mov		edx, 1
-	
-.invalid:
-	mov		eax, 0
+	mov		eax, 2
 	
 .epilog:
 	pop		edi
@@ -1058,6 +1050,10 @@ _completeMove:
 	pop		ebx
 	pop		ebp
 	ret
+	
+	section		.data
+char_fmt:
+	db		"%c", 0x0
 	
 ;void printBoard(game_state* board)
 ; Prints out the board passed
@@ -1204,6 +1200,134 @@ _toIndex:
 	sub		al, 'a'
 
 .epilog:
+	pop		ebp
+	
+	ret
+	
+;void makeMove(game_state* board, player_move* pmove)
+; Applies the move pmove on the game_state board
+_makeMove:
+.prolog:
+	push		ebp
+	mov		ebp, esp
+	push		ebx
+	push		esi
+	push		edi
+	
+	; [ebp+8] = board
+	mov		edi, [ebp+8]
+	; [ebp+12] = pmove
+	mov		esi, [ebp+8]
+	
+	; Make the move on the board
+	; Start rank should be multiplied by 8, then add the start file to get the index of the square
+	mov		eax, 0
+	mov		ebx, 0
+	
+	mov		al, [esi + pm_start_file]
+	push		eax
+	mov		al, [esi + pm_start_rank]
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		bl, [edi + gs_board + eax]
+	mov byte	[edi + gs_board + eax], 0x00
+	
+	mov		al, [esi + pm_destination_file]
+	push		eax
+	mov		al, [esi + pm_destination_rank]
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		[edi + gs_board + eax], bl
+	
+	; If it was a pawn move that went across two ranks, then the pawn moved twice and is a valid target for en passant
+	mov		al, [esi + pm_piece]
+	cmp		al, 'P'
+	jne		.en_passant_skip
+	mov		al, [esi + pm_destination_rank]
+	sub		al, [esi + pm_start_rank]
+	cmp		al, 2
+	je		.en_passant_set
+	cmp		al, -2
+	je		.en_passant_set
+	
+	; If it gets here, there is no valid en passant so clear it from the game state
+	mov byte	[edi + gs_passant_file], 0
+	jmp		.en_passant_skip
+	
+.en_passant_set:
+	mov		al, [esi + pm_start_file]
+	mov		[edi + gs_passant_file], al
+	
+.en_passant_skip:	
+	; Disable castling where applicable
+	; If a start or destination file matches a corner, disable castling to that corner
+	; TODO: This code does not account for a start position and destination position that each land on a corner
+	mov		al, [esi + pm_start_rank]
+	mov		ah, [esi + pm_start_file]
+	cmp		ax, 'a1'
+	je		.white_queenside
+	cmp		ax, 'h1'
+	je		.white_kingside
+	cmp		ax, 'a8'
+	je		.black_queenside
+	cmp		ax, 'h8'
+	je		.black_kingside
+	
+	mov		ah, [esi + pm_destination_rank]
+	mov		al, [esi + pm_destination_file]
+	cmp		ax, 'a1'
+	je		.white_queenside
+	cmp		ax, 'h1'
+	je		.white_kingside
+	cmp		ax, 'a8'
+	je		.black_queenside
+	cmp		ax, 'h8'
+	je		.black_kingside
+	
+.white_queenside:
+	mov byte	[edi + gs_wh_queenside], 0
+	jmp		.white_castling
+.white_kingside:
+	mov byte	[edi + gs_wh_kingside], 0
+	jmp		.white_castling
+.black_queenside:
+	mov byte	[edi + gs_bl_queenside], 0
+	jmp		.white_castling
+.black_kingside:
+	mov byte	[edi + gs_bl_kingside], 0
+	jmp		.white_castling
+	
+	; If the king is moved, disable all castling for that player
+.white_castling:
+	mov		al, [edi + gs_turn]
+	cmp		al, 0x00
+	jne		.black_castling
+	mov		al, [esi + pm_piece]
+	cmp		al, 'K'
+	jne		.black_castling
+	mov byte	[edi + gs_wh_queenside], 0
+	mov byte	[edi + gs_wh_kingside], 0
+	jmp		.castling_skip
+.black_castling:
+	mov		al, [edi + gs_turn]
+	cmp		al, 0x01
+	jne		.castling_skip
+	mov		al, [esi + pm_piece]
+	cmp		al, 'K'
+	jne		.castling_skip
+	mov byte	[edi + gs_bl_queenside], 0
+	mov byte	[edi + gs_bl_kingside], 0
+
+.castling_skip:
+	
+.epilog:
+	pop		edi
+	pop		esi
+	pop		ebx
 	pop		ebp
 	
 	ret

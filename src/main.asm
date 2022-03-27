@@ -51,8 +51,6 @@ iend
 
 in_fmt:	db		"%31s", 0x0
 str_fmt:db		"%s", 0x0
-char_fmt:
-	db		"%c", 0x0
 
 move_prompt:
 	db		"Enter your move in algebraic notation: ", 0xD, 0xA, 0xD, 0xA, 0x0
