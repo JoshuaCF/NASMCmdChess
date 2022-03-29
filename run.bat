@@ -1,4 +1,3 @@
 @ECHO OFF
 cd bin
-main
-pause
+start /max main

@@ -6,10 +6,32 @@
 	global		_makeMove
 	global		_printBoard
 	global		_toIndex
+	global		_copyBoard
 	
 	extern		_printf
 	
 	extern		_isCheck
+	
+	section		.data
+king_pmove:					; Used with checking castling
+istruc player_move
+
+at pm_piece
+	db		'K'
+at pm_start_file
+	db		'e'
+at pm_start_rank
+	db		0
+at pm_destination_file
+	db		0
+at pm_destination_rank
+	db		0
+at pm_promotion
+	db		0
+at pm_castling
+	db		0
+	
+iend
 	
 	section		.bss
 board_bfr:
@@ -33,6 +55,7 @@ _checkMove:
 	
 .body:	; Nothing jumps to this label, but it will get put as a symbol in the debug file. Helps for separating out the actual body of this subroutine from the prologue.
 	mov		edi, [ebp+12]		; pmove ptr
+	mov		ebx, [ebp+8]		; board ptr
 	
 	; If the move is castling, the checks are a bit different
 	mov		al, [edi+pm_castling]
@@ -40,8 +63,291 @@ _checkMove:
 	je		.look_for_self_captures	; If castling != 0, then some castling checks need to be done
 	
 .validate_castling:
+	; First ensure the king is not castling out of check
+	push		ebx
+	call		_isCheck
+	add		esp, 4
+	cmp		eax, 1
+	je		.invalid_castling
 	
+	; Clone the board to board_bfr so we can move the king, then look for a check
+	push		board_bfr
+	push		ebx
+	call		_copyBoard
+	add		esp, 8
 	
+	; Combine gs_turn and pm_castling into a single unique value
+	; This allows me to avoid nesting 'if statements', and I like that.
+	mov		eax, 0
+	mov		al, [ebx+gs_turn]
+	shl		al, 2			; 0b00000000 if white, 0b00000100 if black
+	or		al, [edi+pm_castling]	; 0b00000001 if white kingside, 0b00000010 if white queenside
+						; 0b00000101 if black kingside, 0b00000110 if black queenside
+	
+	cmp		al, 0b00000001		; white kingside
+	je		.wh_kingside
+	cmp		al, 0b00000010		; white queenside
+	je		.wh_queenside
+	cmp		al, 0b00000101		; black kingside
+	je		.bl_kingside
+	cmp		al, 0b00000110		; black queenside
+	je		.bl_queenside
+	
+.wh_kingside:
+	; Check the flag to ensure it's valid
+	mov		al, [ebx+gs_wh_kingside]
+	cmp		al, 1
+	jne		.invalid_castling
+	
+	; Ensure the spaces travelled across are empty (f1 and g1 for white kingside)
+	; I could hardcode these indices, but if I ever change how the board is internally formatted, then they would change
+	; So I'll just call _toIndex (plus that's easier to me lol)
+	
+	; Checking f1
+	mov		eax, 0
+	mov		al, 'f'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Checking g1
+	mov		eax, 0
+	mov		al, 'g'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Ensure the king is not moving through check (landing on check will be looked at later)
+	mov byte	[king_pmove + pm_start_rank], '1'
+	mov byte	[king_pmove + pm_destination_file], 'f'
+	mov byte	[king_pmove + pm_destination_rank], '1'
+	
+	; Simulate the move
+	push		king_pmove
+	push		board_bfr
+	call		_makeMove
+	add		esp, 8
+	
+	; Query for checks on the king
+	push		board_bfr
+	call		_isCheck
+	add		esp, 4
+	
+	; If one step over would leave the king in check, then you can not castle this way
+	cmp		eax, 1
+	je		.invalid_castling
+	
+	; If none of this fails, then move on to looking for a final check
+	jmp		.look_for_check
+	
+.wh_queenside:
+	; Check the flag to ensure it's valid
+	mov		al, [ebx+gs_wh_queenside]
+	cmp		al, 1
+	jne		.invalid_castling
+	
+	; Ensure the spaces travelled across are empty (b1, c1 and d1 for white queenside)
+	
+	; Checking b1
+	mov		eax, 0
+	mov		al, 'b'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Checking c1
+	mov		eax, 0
+	mov		al, 'c'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Checking d1
+	mov		eax, 0
+	mov		al, 'd'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Ensure the king is not moving through check (landing on check will be looked at later)
+	mov byte	[king_pmove + pm_start_rank], '1'
+	mov byte	[king_pmove + pm_destination_file], 'd'
+	mov byte	[king_pmove + pm_destination_rank], '1'
+	
+	; Simulate the move
+	push		king_pmove
+	push		board_bfr
+	call		_makeMove
+	add		esp, 8
+	
+	; Query for checks on the king
+	push		board_bfr
+	call		_isCheck
+	add		esp, 4
+	
+	; If one step over would leave the king in check, then you can not castle this way
+	cmp		eax, 1
+	je		.invalid_castling
+	
+	; If none of this fails, then move on to looking for a final check
+	jmp		.look_for_check
+	
+.bl_kingside:
+	; Check the flag to ensure it's valid
+	mov		al, [ebx+gs_bl_kingside]
+	cmp		al, 1
+	jne		.invalid_castling
+	
+	; Ensure the spaces travelled across are empty (f8 and g8 for black kingside)
+	
+	; Checking f8
+	mov		eax, 0
+	mov		al, 'f'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Checking g8
+	mov		eax, 0
+	mov		al, 'g'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Ensure the king is not moving through check (landing on check will be looked at later)
+	mov byte	[king_pmove + pm_start_rank], '8'
+	mov byte	[king_pmove + pm_destination_file], 'f'
+	mov byte	[king_pmove + pm_destination_rank], '8'
+	
+	; Simulate the move
+	push		king_pmove
+	push		board_bfr
+	call		_makeMove
+	add		esp, 8
+	
+	; Query for checks on the king
+	push		board_bfr
+	call		_isCheck
+	add		esp, 4
+	
+	; If one step over would leave the king in check, then you can not castle this way
+	cmp		eax, 1
+	je		.invalid_castling
+	
+	; If none of this fails, then move on to looking for a final check
+	jmp		.look_for_check
+	
+.bl_queenside:
+	; Check the flag to ensure it's valid
+	mov		al, [ebx+gs_bl_queenside]
+	cmp		al, 1
+	jne		.invalid_castling
+	
+	; Ensure the spaces travelled across are empty (b8, c8 and d8 for black queenside)
+	
+	; Checking b8
+	mov		eax, 0
+	mov		al, 'b'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Checking c8
+	mov		eax, 0
+	mov		al, 'c'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Checking d8
+	mov		eax, 0
+	mov		al, 'd'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx + gs_board + eax]
+	cmp		al, 0x0
+	jne		.invalid_castling
+	
+	; Ensure the king is not moving through check (landing on check will be looked at later)
+	mov byte	[king_pmove + pm_start_rank], '8'
+	mov byte	[king_pmove + pm_destination_file], 'd'
+	mov byte	[king_pmove + pm_destination_rank], '8'
+	
+	; Simulate the move
+	push		king_pmove
+	push		board_bfr
+	call		_makeMove
+	add		esp, 8
+	
+	; Query for checks on the king
+	push		board_bfr
+	call		_isCheck
+	add		esp, 4
+	
+	; If one step over would leave the king in check, then you can not castle this way
+	cmp		eax, 1
+	je		.invalid_castling
+	
+	; If none of this fails, then move on to looking for a final check
+	jmp		.look_for_check
 
 .look_for_self_captures:
 	; If the destination square contains a piece that belongs to the current player, the move fails
@@ -52,8 +358,6 @@ _checkMove:
 	push		eax
 	call		_toIndex
 	add		esp, 8
-	
-	mov		ebx, [ebp+8]		; board ptr
 	
 	; al contains the two high value bits, which represent team
 	; 0b01000000 = white piece
@@ -504,6 +808,12 @@ _completeMove:
 	
 	mov		edi, [ebp+12]		; pointer to pmove
 	; edi won't be modified for the entirety of this subroutine
+	
+	; If the move is castling, then just return OK and let checkMove verify that the castling can be done.
+	; I know this is a bit inconsistent... but whatever.
+	mov		al, [edi + pm_castling]
+	cmp		al, 0
+	jne		.valid
 	
 	; Set the team bits of match_value
 	mov		ebx, [ebp+8]
@@ -1259,13 +1569,214 @@ _makeMove:
 	push		esi
 	push		edi
 	
+.body:
 	; [ebp+8] = board
 	mov		edi, [ebp+8]
 	; [ebp+12] = pmove
 	mov		esi, [ebp+12]
 	
+	; If castling != 0, then the move has special rules
+	mov		eax, 0
+	mov		al, [esi + pm_castling]
+	cmp		al, 0
+	jne		.castling
+	jmp		.normal_move
+	
+.castling:
+	; Mark the king as the piece being moved in the move buffer
+	; This is an easy way to disable all castling for this player's king by acting as if the king moved
+	mov byte	[esi + pm_piece], 'K'
+	
+	; Combine gs_turn and pm_castling into a single unique value
+	; This allows me to avoid nesting 'if statements', and I like that.
+	mov		eax, 0
+	mov		al, [edi + gs_turn]
+	shl		al, 2			; 0b00000000 if white, 0b00000100 if black
+	or		al, [esi + pm_castling]	; 0b00000001 if white kingside, 0b00000010 if white queenside
+						; 0b00000101 if black kingside, 0b00000110 if black queenside
+	cmp		al, 0b00000001
+	je		.wh_kingside
+	cmp		al, 0b00000010
+	je		.wh_queenside
+	cmp		al, 0b00000101
+	je		.bl_kingside
+	cmp		al, 0b00000110
+	je		.bl_queenside
+	
+.wh_kingside:
+	;		King goes from e1 to g1, rook goes from h1 to f1
+	;		Zero out e1 and h1, put 0x60 on g1 and 0x48 on f1
+	mov		eax, 0
+	mov		al, 'e'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x0
+	
+	mov		eax, 0
+	mov		al, 'h'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x0
+	
+	mov		eax, 0
+	mov		al, 'g'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x60
+	
+	mov		eax, 0
+	mov		al, 'f'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x48
+	
+	; Jump to the section that handles the disabling of castling for a king move
+	; (As a shortcut, we can treat castling as a king move to disable all further castling)
+	jmp		.white_castling
+	
+.wh_queenside:
+	;		King goes from e1 to c1, rook goes from a1 to d1
+	;		Zero out e1 and a1, put 0x60 on c1 and 0x48 on d1
+	mov		eax, 0
+	mov		al, 'e'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x0
+	
+	mov		eax, 0
+	mov		al, 'a'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x0
+	
+	mov		eax, 0
+	mov		al, 'c'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x60
+	
+	mov		eax, 0
+	mov		al, 'd'
+	push		eax
+	mov		al, '1'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x48
+	
+	; Jump to the section that handles the disabling of castling for a king move
+	; (As a shortcut, we can treat castling as a king move to disable all further castling)
+	jmp		.white_castling
+	
+.bl_kingside:
+	;		King goes from e8 to g8, rook goes from h8 to f8
+	;		Zero out e8 and h8, put 0xA0 on g8 and 0x88 on f8
+	mov		eax, 0
+	mov		al, 'e'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x0
+	
+	mov		eax, 0
+	mov		al, 'h'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x0
+	
+	mov		eax, 0
+	mov		al, 'g'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0xA0
+	
+	mov		eax, 0
+	mov		al, 'f'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x88
+	
+	; Jump to the section that handles the disabling of castling for a king move
+	; (As a shortcut, we can treat castling as a king move to disable all further castling)
+	jmp		.white_castling
+	
+.bl_queenside:
+	;		King goes from e8 to c8, rook goes from a8 to d8
+	;		Zero out e8 and a8, put 0xA0 on c8 and 0x88 on d8
+	mov		eax, 0
+	mov		al, 'e'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x0
+	
+	mov		eax, 0
+	mov		al, 'a'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x0
+	
+	mov		eax, 0
+	mov		al, 'c'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0xA0
+	
+	mov		eax, 0
+	mov		al, 'd'
+	push		eax
+	mov		al, '8'
+	push		eax
+	call		_toIndex
+	add		esp, 8
+	mov byte	[edi + gs_board + eax], 0x88
+	
+	; Jump to the section that handles the disabling of castling for a king move
+	; (As a shortcut, we can treat castling as a king move to disable all further castling)
+	jmp		.white_castling
+
+.normal_move:
 	; Make the move on the board
-	; Start rank should be multiplied by 8, then add the start file to get the index of the square
 	mov		eax, 0
 	mov		ebx, 0
 	
@@ -1310,39 +1821,47 @@ _makeMove:
 .en_passant_skip:	
 	; Disable castling where applicable
 	; If a start or destination file matches a corner, disable castling to that corner
-	; TODO: This code does not account for a start position and destination position that each land on a corner
-	mov		al, [esi + pm_start_rank]
-	mov		ah, [esi + pm_start_file]
-	cmp		ax, 'a1'
-	je		.white_queenside
-	cmp		ax, 'h1'
-	je		.white_kingside
-	cmp		ax, 'a8'
-	je		.black_queenside
-	cmp		ax, 'h8'
-	je		.black_kingside
 	
-	mov		ah, [esi + pm_destination_rank]
-	mov		al, [esi + pm_destination_file]
-	cmp		ax, 'a1'
-	je		.white_queenside
-	cmp		ax, 'h1'
-	je		.white_kingside
-	cmp		ax, 'a8'
-	je		.black_queenside
-	cmp		ax, 'h8'
-	je		.black_kingside
+	mov		eax, 0
+	mov		al, [esi + pm_start_file]
+	mov		ah, [esi + pm_start_rank]
+	mov		ecx, 0
+	mov		cl, [esi + pm_destination_file]
+	mov		ch, [esi + pm_destination_rank]
 	
-.white_queenside:
+	; Checks
+.a1check:
+	cmp		ax, 'a1'
+	je		.a1
+	cmp		cx, 'a1'
+	je		.a1
+.h1check:
+	cmp		ax, 'h1'
+	je		.h1
+	cmp		cx, 'h1'
+	je		.h1
+.a8check:
+	cmp		ax, 'a8'
+	je		.a8
+	cmp		cx, 'a8'
+	je		.a8
+.h8check:
+	cmp		ax, 'h8'
+	je		.h8
+	cmp		cx, 'h8'
+	je		.h8
+	jmp		.white_castling
+	
+.a1:	; a1 corner
 	mov byte	[edi + gs_wh_queenside], 0
-	jmp		.white_castling
-.white_kingside:
+	jmp		.h1check
+.h1:	; h1 corner
 	mov byte	[edi + gs_wh_kingside], 0
-	jmp		.white_castling
-.black_queenside:
+	jmp		.a8check
+.a8:	; a8 corner
 	mov byte	[edi + gs_bl_queenside], 0
-	jmp		.white_castling
-.black_kingside:
+	jmp		.h8check
+.h8:	; h8 corner
 	mov byte	[edi + gs_bl_kingside], 0
 	jmp		.white_castling
 	
@@ -1356,18 +1875,16 @@ _makeMove:
 	jne		.black_castling
 	mov byte	[edi + gs_wh_queenside], 0
 	mov byte	[edi + gs_wh_kingside], 0
-	jmp		.castling_skip
+	jmp		.epilog
 .black_castling:
 	mov		al, [edi + gs_turn]
 	cmp		al, 0x01
-	jne		.castling_skip
+	jne		.epilog
 	mov		al, [esi + pm_piece]
 	cmp		al, 'K'
-	jne		.castling_skip
+	jne		.epilog
 	mov byte	[edi + gs_bl_queenside], 0
 	mov byte	[edi + gs_bl_kingside], 0
-
-.castling_skip:
 	
 .epilog:
 	pop		edi
