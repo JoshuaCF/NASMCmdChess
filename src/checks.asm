@@ -19,7 +19,7 @@ _isCheck:
 	; Toggle the turn of the game_state
 	; Construct a pmove for each piece type with the located king as the destination
 	; Call _completeMove for each constructed pmove
-	; If edx ever == 1, then the current player is in check. Return 1 in eax
+	; If eax is ever < 2, then the current player is in check. Return 1 in eax
 	; If the loop never breaks, return 0 in eax
 	
 	; ebp + 8 = *game_state board

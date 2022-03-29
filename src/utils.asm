@@ -10,6 +10,10 @@
 	extern		_printf
 	
 	extern		_isCheck
+	
+	section		.bss
+board_bfr:
+	resb		game_state_size
 
 	section		.text
 ; int checkMove(game_state* board, player_move* pmove)
@@ -74,11 +78,47 @@ _checkMove:
 	jmp		.invalid_self_capture
 	
 .look_for_check:
+	; Copy the entire board over to a buffer_board here
+	mov		ebx, [ebp+8]		; board ptr
+	
+	mov		ecx, 0			; loop counter
+.copy_board_loop:
+	mov		al, [ebx + ecx]
+	mov		[board_bfr + ecx], al
+	
+	inc		ecx
+	cmp		ecx, game_state_size
+	jl		.copy_board_loop
+	
+	; Make the potential move on the buffer board (don't swap the player turn! _isCheck looks for checks on the player whose turn it is)
+	mov		eax, [ebp+12]
+	push		eax
+	push		board_bfr
+	call		_makeMove
+	add		esp, 8
+	
+	; Call _isCheck and check the result. If eax == 1, jmp to .invalid_in_check
+	push		board_bfr
+	call		_isCheck
+	add		esp, 4
+	cmp		eax, 0
+	je		.valid
+	jmp		.invalid_in_check
 
-.invalid_castling:	
+.invalid_castling:
+	mov		eax, 1
+	jmp		.epilog
+	
 .invalid_self_capture:
+	mov		eax, 2
+	jmp		.epilog
+	
 .invalid_in_check:
+	mov		eax, 3
+	jmp		.epilog
+
 .valid:
+	mov		eax, 0
 	
 .epilog:
 	pop		edi
@@ -1055,6 +1095,8 @@ _completeMove:
 char_fmt:
 	db		"%c", 0x0
 	
+	section		.text
+	
 ;void printBoard(game_state* board)
 ; Prints out the board passed
 _printBoard:
@@ -1217,7 +1259,7 @@ _makeMove:
 	; [ebp+8] = board
 	mov		edi, [ebp+8]
 	; [ebp+12] = pmove
-	mov		esi, [ebp+8]
+	mov		esi, [ebp+12]
 	
 	; Make the move on the board
 	; Start rank should be multiplied by 8, then add the start file to get the index of the square
