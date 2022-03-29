@@ -31,9 +31,17 @@ _checkMove:
 	push		esi
 	push		edi
 	
+.body:	; Nothing jumps to this label, but it will get put as a symbol in the debug file. Helps for separating out the actual body of this subroutine from the prologue.
 	mov		edi, [ebp+12]		; pmove ptr
-	; TODO: If the move is castling, the checks are a bit different
+	
+	; If the move is castling, the checks are a bit different
+	mov		al, [edi+pm_castling]
+	cmp		al, 0
+	je		.look_for_self_captures	; If castling != 0, then some castling checks need to be done
+	
 .validate_castling:
+	
+	
 
 .look_for_self_captures:
 	; If the destination square contains a piece that belongs to the current player, the move fails
@@ -78,17 +86,12 @@ _checkMove:
 	jmp		.invalid_self_capture
 	
 .look_for_check:
-	; Copy the entire board over to a buffer_board here
-	mov		ebx, [ebp+8]		; board ptr
-	
-	mov		ecx, 0			; loop counter
-.copy_board_loop:
-	mov		al, [ebx + ecx]
-	mov		[board_bfr + ecx], al
-	
-	inc		ecx
-	cmp		ecx, game_state_size
-	jl		.copy_board_loop
+	; Copy the entire board over to a board buffer
+	push		board_bfr
+	mov		eax, [ebp+8]
+	push		eax
+	call		_copyBoard
+	add		esp, 8
 	
 	; Make the potential move on the buffer board (don't swap the player turn! _isCheck looks for checks on the player whose turn it is)
 	mov		eax, [ebp+12]
@@ -1369,6 +1372,33 @@ _makeMove:
 .epilog:
 	pop		edi
 	pop		esi
+	pop		ebx
+	pop		ebp
+	
+	ret
+	
+; copyBoard(game_state* board1, game_state* board2)
+; Copies the entirety of board1 into board2
+_copyBoard:
+.prolog:
+	push		ebp
+	mov		ebp, esp
+	push		ebx
+	
+.body:
+	mov		ebx, [ebp+8]		; board1
+	mov		edx, [ebp+12]		; board2
+	
+	mov		ecx, 0			; loop counter
+.copy_board_loop:
+	mov		al, [ebx + ecx]		; move value from board1 into al
+	mov		[edx + ecx], al		; move value from al to board2
+	
+	inc		ecx
+	cmp		ecx, game_state_size
+	jl		.copy_board_loop
+	
+.epilog:
 	pop		ebx
 	pop		ebp
 	
