@@ -171,10 +171,55 @@ _main:
 	xor		al, 1
 	mov		[board + gs_turn], al
 	
-	; TODO: Look for stalemate/checkmate
+	; Look for stalemate/checkmate
+	push		board
+	call		_isCheckmate
+	add		esp, 4
+	cmp		eax, 1
+	je		.show_checkmate
+	
+	push		board
+	call		_isStalemate
+	add		esp, 4
+	cmp		eax, 1
+	je		.show_stalemate
 	
 	; Otherwise, the game continues
 	jmp		.main_loop
+	
+.show_checkmate:
+	; If it's white's turn, push black_str. Vice versa
+	mov		al, [board + gs_turn]
+	cmp		al, 0
+	jne		.black_wins
+.white_wins:
+	push		white_str
+	jmp		.print_checkmate_msg
+.black_wins:
+	push		black_str
+	
+.print_checkmate_msg:	
+	push		checkmate_prompt
+	call		_printf
+	add		esp, 8
+	jmp		.epilog
+
+.show_stalemate:
+	; If it's white's turn, push white_str. Vice versa
+	mov		al, [board + gs_turn]
+	cmp		al, 1
+	je		.black_stalemate
+.white_stalemate:
+	push		white_str
+	jmp		.print_stalemate_msg
+.black_stalemate:
+	push		black_str
+	
+.print_stalemate_msg:
+	push		stalemate_prompt
+	call		_printf
+	add		esp, 8
+	jmp		.epilog
 	
 .show_err_failed_parse:
 	push		err_failed_parse

@@ -12,7 +12,8 @@ EXIT /B 0
 
 :skip
 
-gcc -m32 -g %objs% -o bin/main.exe
+gcc -m32 -ggdb %objs% -o bin/main.exe
+gcc -ggdb -O0 -c src/structs.c -o bin/structs.o
 
 FOR /F "tokens=*" %%a IN (files.txt) DO DEL "src\%%a.obj"
 
