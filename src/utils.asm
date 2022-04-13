@@ -701,7 +701,7 @@ _parseMove:
 .kingside:
 	mov		dx, [ebx+1]
 	cmp		dx, '-O'		; Same as above but with two characters
-	mov byte	[edi + pm_castling], 1		; castling=1 is kingside castling
+	mov byte	[edi + pm_castling], 1	; castling=1 is kingside castling
 	je		.valid
 	jmp		.invalid
 	
@@ -712,6 +712,20 @@ _parseMove:
 	
 	; A valid input will jump here
 .valid:
+	; There's still one final check to make. If the move is a pawn move, and no disambiguation file was specified
+	; then the pawn must start on the same file as its ending file
+	mov		al, [edi + pm_piece]
+	cmp		al, 'P'
+	jne		.valid_2
+	
+	mov		al, [edi + pm_start_file]
+	cmp		al, 0x0
+	jne		.valid_2
+	
+	mov		al, [edi + pm_destination_file]
+	mov		[edi + pm_start_file], al
+	
+.valid_2:
 	mov		eax, 1
 	
 .epilog:
