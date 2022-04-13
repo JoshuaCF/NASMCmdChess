@@ -437,6 +437,14 @@ _checkMove:
 	section		.bss
 in_len:
 	resd		1
+fragments_parsed:
+	; Tracks how many parts of a tile were parsed (1 means file or rank, but not both, 2 means both, 0 means none)
+	resb		1
+tiles_parsed:
+	; The way I have this set up, you could just chain tiles together and it would only look at the last two
+	; This will count how many times a tile got parsed. If it's at 2, it will stop parsing and consider the input invalid
+	resb		1
+	
 	
 	section		.text
 ; bool parseMove(char* input, player_move* pmove) -> returns whether or not parsing failed
@@ -447,6 +455,8 @@ _parseMove:
 	push		ebx
 	push		esi
 	push		edi
+	
+.body:
 	
 	; [ebp+8] = input
 	; [ebp+12] = pmove
@@ -460,6 +470,9 @@ _parseMove:
 	mov byte	[edi + pm_destination_rank], 0
 	mov byte	[edi + pm_promotion], 0
 	mov byte	[edi + pm_castling], 0
+	
+	mov dword	[in_len], 0
+	mov byte	[tiles_parsed], 0
 	
 	; Algebraic notation:
 	; [piece][file][rank]["x"]destination[=piece]
@@ -484,6 +497,7 @@ _parseMove:
 	jle		.invalid
 	
 ; PARSING THE INPUT
+.parse_piece:
 	; Go through each character, determining its purpose and if its valid
 	mov		ecx, 0			; Start on character 0
 	
@@ -491,231 +505,180 @@ _parseMove:
 	mov		dl, [ebx+ecx]		; Current character (should always be the first character at this point)
 	cmp		dl, 'O'			; If the input starts with this, jump to checking for special cases
 	je		.special
-
-.parsePiece:
-; DETERMINING THE PIECE
-	; The first character must be an uppercase letter K, Q, R, N, B, or lowercase letter a-h (castling was already checked for)
-	cmp		dl, 'K'
+	
+	; The first character can always be used to determine what piece is being moved
+	mov		al, [ebx+ecx]
+	
+	; Check for all pieces but a pawn
+	cmp		al, 'K'
 	je		.not_pawn
-	cmp		dl, 'Q'
+	cmp		al, 'Q'
 	je		.not_pawn
-	cmp		dl, 'R'
+	cmp		al, 'R'
 	je		.not_pawn
-	cmp		dl, 'N'
+	cmp		al, 'B'
 	je		.not_pawn
-	cmp		dl, 'B'
+	cmp		al, 'N'
 	je		.not_pawn
 	
-	; If it isn't one of the uppercase letters, it can NOT be outside the range of a-h
-	cmp		dl, 'a'
+	; If the first letter isn't a piece or castling, ensure it's 'a'-'h'
+	cmp		al, 'a'
 	jl		.invalid
-	cmp		dl, 'h'
+	cmp		al, 'h'
 	jg		.invalid
-	jmp		.pawn
-	
-.not_pawn:
-	; If we get here, it's not a pawn and the current letter is the piece
-	mov byte	[edi + pm_piece], dl
-	inc		ecx
-	
-	jmp		.parseDisambiguation
 	
 .pawn:
-	; If we get here, it's definitely a pawn move, starting on the file of this character
-	; We can go ahead and do disambiguation stuff since pawns are a little weird
 	mov byte	[edi + pm_piece], 'P'
-	mov byte	[edi + pm_start_file], dl
+	jmp		.clean_x
 	
-	; Pawn moves are always an even length (a4, axb4, a8=Q, axb8=Q)
-	mov		edx, 0
-	mov		eax, [in_len]
-	mov		esi, 2
-	idiv		esi
-	; EDX contains the remainder, EAX contains the quotient
-	cmp		edx, 0
-	jne		.invalid
-	
-	; If the second character is an "x", go ahead and skip it before jumping to destination parsing
-	mov		dl, [ebx+ecx+1]
-	cmp		dl, 'x'
-	jne		.parseDestination
-	
-	add		ecx, 2
-	
-	jmp		.parseDestination
-
-.parseDisambiguation:
-; DETERMINE DISAMBIGUATION CHARACTERS (if any)
-	; Load the next character
-	mov		dl, [ebx+ecx]
-
-	; At this point, there's three possibilities:
-	; The next two characters are the destination squares
-	; There are one or two characters of disambiguation
-	; The next character is an "x", specifying a capture
-	
-	; Pawns were already handled as a semi-special case, so there won't be any promotion characters
-	
-	; If the next character is an "x", there are no disambiguation characters
-	cmp		dl, 'x'
-	jne		.disamSkip
-	inc		ecx			; If it's an x, skip it and jump to determining destination
-	jmp		.parseDestination
-	
-.disamSkip:
-	; The current possible formats:
-	; Bd4
-	; Bc3d4
-	; Bcd4
-	; B3d4
-	; Bc3xd4
-	; Bcxd4
-	; B3xd4
-	
-	; If it's only a 3 character input (Bd4), then jump to destination parsing
-	mov		eax, [in_len]
-	cmp		eax, 3
-	je		.parseDestination
-	
-	; The current possible formats:
-	; Bc3d4
-	; Bcd4
-	; B3d4
-	; Bc3xd4
-	; Bcxd4
-	; B3xd4
-.disamFile:
-	; If it's more than 3 characters, the current character is disambiguation. See if it's a file, then rank
-	cmp		dl, 'a'
-	jl		.disamRank
-	cmp		dl, 'h'
-	jg		.disamRank
-	
-	; The current character is a file disambiguation character
-	mov		[edi + pm_start_file], dl
-	inc		ecx
-	mov		dl, [ebx+ecx]
-	
-	; If the next character is an 'x', we're done
-	cmp		dl, 'x'
-	jne		.disamRank
-	inc		ecx
-	jmp		.parseDestination
-	
-	; The current possible formats:
-	; Bc3d4
-	; Bcd4
-	; B3d4
-	; Bc3xd4
-	; B3xd4
-.disamRank:
-	; If we get here, the next character must be a number 1-8 in order for it to be a disambiguation character
-	; If it fails to be a number 1-8, jump to destination parsing
-	cmp		dl, '1'
-	jl		.parseDestination
-	cmp		dl, '8'
-	jg		.parseDestination
-	
-	; The current character is a rank disambiguation character
-	mov		[edi + pm_start_rank], dl
-	inc		ecx
-	mov		dl, [ebx+ecx]
-	
-	; The current possible formats:
-	; Bc3d4
-	; B3d4
-	; Bc3xd4
-	; B3xd4
-	
-	; parseDestination does not expect to be put on an 'x', so if this character is an x, skip it before going to parse destination
-	cmp		dl, 'x'
-	jne		.parseDestination
-	inc		ecx
-	jmp		.parseDestination
-	
-.parseDestination:
-; DETERMINE DESTINATION
-	; Load the next character
-	mov		dl, [ebx+ecx]
-	
-	; At this point, there should only be a destination and possibly a promotion if it's a pawn remaining
-	; Determining destination is easy at the moment -- it should be the next two characters, but we need to ensure they're a-h and 1-8
-	; Checking a-h for file
-	cmp		dl, 'a'
-	jl		.invalid
-	cmp		dl, 'h'
-	jg		.invalid
-	
-	mov		[edi + pm_destination_file], dl
-	
-	; Checking 1-8 for rank
+.not_pawn:
+	mov		[edi + pm_piece], al
 	inc		ecx
 	
-	mov		dl, [ebx+ecx]
-	
-	cmp		dl, '1'
-	jl		.invalid
-	cmp		dl, '8'
-	jg		.invalid
-	
-	mov		[edi + pm_destination_rank], dl
+.clean_x:
+	; Shave off any 'x' that might be at the start
+	mov		al, [ebx + ecx]
+	cmp		al, 'x'
+	jne		.parse_destination
 	
 	inc		ecx
 	
-	; If the destination rank is one of the back ranks and the current piece is a pawn, then jump to promotion determination. There MUST be a promotion listed.
-	cmp		dl, '8'
-	je		.is_back_rank
-	cmp		dl, '1'
-	je		.is_back_rank
+.parse_destination:
+	; Clear the tile flag
+	mov byte	[fragments_parsed], 0
 	
-	; Otherwise, if there are still characters remaining, then the string is invalid
+	; Try parsing the next two characters into a tile
+	mov		al, [ebx + ecx]
+	
+	; First character should be 'a'-'h'
+	; If it fails, jump to .parse_disambiguation and attempt to resume from there
+	; We could have a rank first for disambiguation
+	cmp		al, 'a'
+	jl		.parse_disambiguation
+	cmp		al, 'h'
+	jg		.parse_disambiguation
+	
+	mov		[edi + pm_destination_file], al
+	mov byte	[fragments_parsed], 1
+	
+	inc		ecx
+	
+	; Attempt to read in a rank
+	mov		al, [ebx + ecx]
+	cmp		al, '1'
+	jl		.parse_disambiguation
+	cmp		al, '8'
+	jg		.parse_disambiguation
+	
+	mov		[edi + pm_destination_rank], al
+	
+	inc		ecx
+	
+	; Mark that a tile has been parsed
+	mov		al, [tiles_parsed]
+	inc		al
+	mov		[tiles_parsed], al
+	
+	; At this point, a tile is fully parsed, but it could actually be the disambiguation tile
+	; Check to see if we're at the end of the string. If so, the move is valid and fully parsed
 	cmp		ecx, [in_len]
-	jl		.invalid
-	jmp		.valid
+	jge		.valid
 	
-.is_back_rank:
-	mov		dl, [edi + pm_piece]
-	cmp		dl, 'P'
-	je		.parsePromotion
-	jmp		.valid			; If it's not a pawn and it's a backrank move, then don't worry about checking promotions
-
-.parsePromotion:
-; DETERMINING PROMOTIONS
+	; Otherwise, check to see if there's an '=' for promotions
+	mov		al, [ebx + ecx]
+	cmp		al, '='
+	je		.parse_promotion
 	
-	; The next character must be an equals sign "="
-	mov		dl, [ebx+ecx]
-	cmp		dl, '='
+	; If we've fully parsed a tile and we're not at the end of the string, and there's no promotion coming up next
+	; Then what was parsed MUST be disambiguation, and there MUST be two characters of destination next
+	; First check that we haven't already parsed a destination and disambiguation
+	mov		al, [tiles_parsed]
+	cmp		al, 2
+	jge		.invalid
+	
+	; Copy the values to the correct spot, and try parsing the destination again
+	mov		al, [edi + pm_destination_file]
+	mov		[edi + pm_start_file], al
+	
+	mov		al, [edi + pm_destination_rank]
+	mov		[edi + pm_start_rank], al
+	
+	jmp		.clean_x
+	
+.parse_disambiguation:
+	; If it jumps here, then .parse_destination came across a character that didn't match the expected order
+	; Go ahead and copy the file, in case one was read in
+	mov		al, [edi + pm_destination_file]
+	mov		[edi + pm_destination_file], al
+	
+	; If a tile was already parsed and .parse_destination sends the execution here again, then the input is invalid
+	mov		al, [tiles_parsed]
+	cmp		al, 1
+	jge		.invalid
+	
+	; If there's only a file for disambiguation, rank parsing will fail and the fragments will be looked at
+	mov		al, [ebx + ecx]
+	cmp		al, '1'
+	jl		.disam_end
+	cmp		al, '8'
+	jg		.disam_end
+	
+	mov		[edi + pm_start_rank], al
+	
+	inc		ecx
+	
+	mov		al, [tiles_parsed]
+	inc		al
+	mov		[tiles_parsed], al
+	
+	jmp		.clean_x
+	
+.disam_end:
+	; parse_destination came across something strange, and parse_disambiguation didn't find anything new. check to see if parse_destination found anything
+	mov		al, [fragments_parsed]
+	cmp		al, 0
+	; If it didn't, then something is invalid
+	je		.invalid
+	
+	mov		al, [tiles_parsed]
+	inc		al
+	mov		[tiles_parsed], al
+	
+	jmp		.clean_x
+	
+.parse_promotion:
+	; Ensure that the move is a pawn move if we're here
+	mov		al, [edi + pm_piece]
+	cmp		al, 'P'
 	jne		.invalid
 	
-	; The next character must be Q, R, B, or N
+	; The current character will be '=' if it gets here
 	inc		ecx
-	mov		dl, [ebx+ecx]
 	
-	; This will be kind of ugly. I don't know a better way to do this in NASM
-	; This is basically if else if else if else if else
-	cmp		dl, 'Q'
-	jne		.promotionSkip1
+	mov		al, [ebx + ecx]
 	
-	mov		[edi + pm_promotion], dl
-	jmp		.valid
-.promotionSkip1:
-	cmp		dl, 'R'
-	jne		.promotionSkip2
+	; Ensure the next character is an actual piece that can be a promotion piece
+	cmp		al, 'Q'
+	je		.promotion_end
+	cmp		al, 'R'
+	je		.promotion_end
+	cmp		al, 'B'
+	je		.promotion_end
+	cmp		al, 'N'
+	je		.promotion_end
 	
-	mov		[edi + pm_promotion], dl
-	jmp		.valid
-.promotionSkip2:
-	cmp		dl, 'B'
-	jne		.promotionSkip3
+	; If it wasn't one of those, then the input is invalid
+	jmp		.invalid
 	
-	mov		[edi + pm_promotion], dl
-	jmp		.valid
-.promotionSkip3:
-	cmp		dl, 'N'
-	jne		.invalid		; If we're checking for the last valid character and it doesn't match, then it's invalid
+.promotion_end:
+	; Copy the promotion piece into the move pointer
+	mov		[edi + pm_promotion], al
 	
-	mov		[edi + pm_promotion],dl
-	jmp		.valid
+	; Ensure we're at the string end before jumping to .valid
+	inc		ecx
+	cmp		ecx, [in_len]
+	je		.valid
+	jmp		.invalid
 	
 ; DETERMINING CASTLING
 	; If the input is some form of castling, figure out which one it is
@@ -732,7 +695,7 @@ _parseMove:
 .queenside:
 	mov		edx, [ebx+1]
 	cmp		edx, '-O-O'		; Convenient way to check four characters
-	mov byte	[edi + pm_castling], 2		; castling=2 is queenside castling (it's okay if it jumps to invalid after this -- this will get ignored)
+	mov byte	[edi + pm_castling], 2	; castling=2 is queenside castling (it's okay if it jumps to invalid after this -- this will get ignored)
 	je		.valid
 	jmp		.invalid
 .kingside:
