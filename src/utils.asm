@@ -609,7 +609,7 @@ _parseMove:
 	; If it jumps here, then .parse_destination came across a character that didn't match the expected order
 	; Go ahead and copy the file, in case one was read in
 	mov		al, [edi + pm_destination_file]
-	mov		[edi + pm_destination_file], al
+	mov		[edi + pm_start_file], al
 	
 	; If a tile was already parsed and .parse_destination sends the execution here again, then the input is invalid
 	mov		al, [tiles_parsed]
@@ -765,6 +765,9 @@ matched_index:
 	resb		1
 match_value:
 	resb		1
+; This value will be used for pawn movements. It represents what needs to be added to the rank to step a move 'backwards', relative to the player's perspective
+backwards:
+	resb		1
 	
 	section		.text
 	
@@ -839,7 +842,183 @@ _completeMove:
 	cmp		al, 'Q'
 	je		.queen
 	
-.pawn:						; TODO
+.pawn:
+	; Complete the match value
+	or		ah, 0b00000001
+	mov		[match_value], ah
+	
+.compute_backwards:
+	; Compute a 'backwards' offset
+	; gs_turn = 0 = white
+	; gs_turn = 1 = black
+	; White offset should be negative 1
+	; Black offset should be positive 1
+	; gs_turn << 1 == gs_turn * 2
+	; gs_turn * 2 - 1 will give positive 1 for black, and negative 1 for white. No jumps required
+	mov		al, [ebx+gs_turn]
+	shl		al, 1
+	sub		al, 1
+	mov		[backwards], al
+	
+.pawn_move:
+	; If the start file and the end file match, the pawn is moving one or two tiles
+	mov		al, [edi+pm_destination_file]
+	mov		ah, [edi+pm_start_file]
+	cmp		al, ah
+	jne		.pawn_capture
+	
+	; The destination square must be empty
+	mov		eax, 0
+	mov		al, [edi+pm_destination_file]
+	push		eax
+	mov		al, [edi+pm_destination_rank]
+	push		eax
+	
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx+gs_board+eax]
+	cmp		al, 0x0
+	jne		.err_no_piece		; I shoud probably write in a better error for this case, but eh.
+	
+.pawn_single_move:
+	; First, ensure the tile is even on the board
+	mov		al, [edi+pm_destination_rank]
+	mov		ah, [backwards]
+	add		al, ah
+	cmp		al, '1'
+	jl		.err_no_piece
+	cmp		al, '8'
+	jg		.err_no_piece
+	
+	mov		ecx, 0
+	mov		cl, al
+	mov		eax, 0
+	mov		al, [edi+pm_destination_file]
+	push		eax
+	push		ecx
+	
+	call		_toIndex
+	add		esp, 8
+	
+	; If one step backwards is NOT empty, add it to the list of tiles to check, and jump to .locate_matches
+	; If it is empty, look for a double move possibility
+	mov		al, [ebx+gs_board+eax]
+	cmp		al, 0x0
+	je		.pawn_double_move_check
+	
+	; The tile is not empty. Add it to the list of potential pieces, and go to .locate_matches
+	mov		al, [edi+pm_destination_file]
+	mov		[potential_pieces_arr], al
+	
+	mov		al, [edi+pm_destination_rank]
+	mov		ah, [backwards]
+	add		al, ah
+	mov		[potential_pieces_arr + 1], al
+	
+	mov byte	[potential_pieces], 1
+	jmp		.locate_matches
+	
+.pawn_double_move_check:
+	; Ensure the tile two spaces back is on rank '2' or '7'
+	mov		al, [edi+pm_destination_rank]
+	mov		ah, [backwards]
+	add		al, ah
+	add		al, ah
+	cmp		al, '2'
+	je		.pawn_double_move
+	cmp		al, '7'
+	je		.pawn_double_move
+	jmp		.err_no_piece
+	
+.pawn_double_move:
+	; There's no need to check the state of the tile two steps back, .locate_matches will handle it
+	mov		ah, [edi+pm_destination_file]
+	mov		[potential_pieces_arr], ah
+	mov		[potential_pieces_arr + 1], al
+	mov byte	[potential_pieces], 1
+	jmp		.locate_matches
+	
+.pawn_capture:
+	; If the start file and end file do not match, the move must be a diagonal capture
+	; Check to see if the destination is empty first. If it is, perform en passant checks
+	mov		eax, 0
+	mov		al, [edi+pm_destination_file]
+	push		eax
+	mov		al, [edi+pm_destination_rank]
+	push		eax
+	
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [ebx+gs_board+eax]
+	
+	cmp		al, 0x0
+	jne		.pawn_capture_final
+	
+.pawn_capture_en_passant:
+	; If the destination is empty, then it can't be a capture unless it's en passant
+	mov		al, [edi+pm_destination_file]
+	mov		ah, [ebx+gs_passant_file]
+	cmp		al, ah
+	jne		.err_no_piece
+	
+	; The destination rank must also be '6' or '3' for en passant
+	; 6 for white, 3 for black
+	mov		al, [edi+pm_destination_rank]
+	
+	mov		cl, [ebx+gs_turn]
+	cmp		cl, 0
+	je		.pawn_white
+	jmp		.pawn_black
+	
+.pawn_white:
+	cmp		al, '6'
+	je		.pawn_capture_final
+	jmp		.err_no_piece
+	
+.pawn_black:
+	cmp		al, '3'
+	je		.pawn_capture_final
+	jmp		.err_no_piece
+
+.pawn_capture_final:
+	; Add the two locations diagonally backwards to the tiles that should be checked
+	mov		edx, 0
+	mov		dl, [potential_pieces]
+	
+	mov		al, [edi+pm_destination_file]
+	mov		ah, [edi+pm_destination_rank]
+	mov		cl, [backwards]
+	add		ah, cl
+	
+	cmp		ah, '1'
+	jl		.err_no_piece
+	cmp		ah, '8'
+	jg		.err_no_piece
+	
+	add		al, -1
+	cmp		al, 'a'
+	jl		.pawn_capture_final_2
+	cmp		al, 'h'
+	jg		.pawn_capture_final_2
+	
+	mov		[potential_pieces_arr + edx*2], al
+	mov		[potential_pieces_arr + edx*2 + 1], ah
+	inc		dl
+	mov		[potential_pieces], dl
+	
+.pawn_capture_final_2:
+	add		al, 2
+	cmp		al, 'a'
+	jl		.locate_matches
+	cmp		al, 'h'
+	jg		.locate_matches
+	
+	mov		[potential_pieces_arr + edx*2], al
+	mov		[potential_pieces_arr + edx*2 + 1], ah
+	inc		dl
+	mov		[potential_pieces], dl
 	jmp		.locate_matches
 	
 .king:
@@ -1753,6 +1932,19 @@ _makeMove:
 	jmp		.white_castling
 
 .normal_move:
+	; Track whether or not the destination is empty (for use if the move was an en passant capture)
+	mov		eax, 0
+	mov		al, [esi+pm_destination_file]
+	push		eax
+	mov		al, [esi+pm_destination_rank]
+	push		eax
+	
+	call		_toIndex
+	add		esp, 8
+	
+	mov		al, [edi+gs_board+eax]
+	push		eax			; Save the tile's contents to the stack
+	
 	; Make the move on the board
 	mov		eax, 0
 	mov		ebx, 0
@@ -1776,10 +1968,12 @@ _makeMove:
 	
 	mov		[edi + gs_board + eax], bl
 	
+	pop		ecx			; Get the original contents of the destination tile
+	
 	; If it was a pawn move that went across two ranks, then the pawn moved twice and is a valid target for en passant
 	mov		al, [esi + pm_piece]
 	cmp		al, 'P'
-	jne		.en_passant_skip
+	jne		.en_passant_unset
 	mov		al, [esi + pm_destination_rank]
 	sub		al, [esi + pm_start_rank]
 	cmp		al, 2
@@ -1787,15 +1981,49 @@ _makeMove:
 	cmp		al, -2
 	je		.en_passant_set
 	
+.en_passant_unset:
 	; If it gets here, there is no valid en passant so clear it from the game state
 	mov byte	[edi + gs_passant_file], 0
-	jmp		.en_passant_skip
+	jmp		.en_passant_capture
 	
 .en_passant_set:
 	mov		al, [esi + pm_start_file]
 	mov		[edi + gs_passant_file], al
 	
-.en_passant_skip:	
+.en_passant_capture:
+	; If the move was a pawn move that ended on a new file, and the destination was empty, clear the contents of the tile one 'backwards' move from the destination
+	mov		al, [esi+pm_piece]
+	cmp		al, 'P'
+	jne		.en_passant_skip
+	
+	cmp		cl, 0x0
+	jne		.en_passant_skip
+	
+	; Compute a 'backwards' offset
+	; gs_turn = 0 = white
+	; gs_turn = 1 = black
+	; White offset should be negative 1
+	; Black offset should be positive 1
+	; gs_turn << 1 == gs_turn * 2
+	; gs_turn * 2 - 1 will give positive 1 for black, and negative 1 for white. No jumps required
+	mov		al, [edi+gs_turn]
+	shl		al, 1
+	sub		al, 1
+	mov		[backwards], al
+	
+	mov		ecx, 0
+	mov		cl, [esi+pm_destination_file]
+	push		ecx
+	mov		cl, [esi+pm_destination_rank]
+	add		cl, al
+	push		ecx
+	
+	call		_toIndex
+	add		esp, 8
+	
+	mov byte	[edi+gs_board+eax], 0x00
+	
+.en_passant_skip:
 	; Disable castling where applicable
 	; If a start or destination file matches a corner, disable castling to that corner
 	
