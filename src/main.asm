@@ -75,6 +75,10 @@ err_no_castling:
 	db		"You can not castle this way.", 0xD, 0xA, 0xD, 0xA, 0x0
 err_in_check:
 	db		"This move leaves you in check.", 0xD, 0xA, 0xD, 0xA, 0x0
+err_no_promotion:
+	db		"No promotion was specified for the pawn.", 0xD, 0xA, 0xD, 0xA, 0x0
+err_promotion:
+	db		"You can't promote here.", 0xD, 0xA, 0xD, 0xA, 0x0
 	
 	section		.bss
 in_bfr:	resb		32
@@ -158,6 +162,13 @@ _main:
 	cmp		eax, 3
 	je		.show_err_in_check
 	
+	; If checkMove returns 4, the move put a pawn on a back rank without specifying a promotion
+	cmp		eax, 4
+	je		.show_err_no_promotion
+	
+	; If checkMove returns 5, the player attempted to promote on a non-back rank
+	cmp		eax, 5
+	je		.show_err_promotion
 	
 	; If all the components of move parsing and checking pass, then make the move on the board
 	push		move_bfr
@@ -191,7 +202,7 @@ _main:
 	; If it's white's turn, push black_str. Vice versa
 	mov		al, [board + gs_turn]
 	cmp		al, 0
-	jne		.black_wins
+	je		.black_wins
 .white_wins:
 	push		white_str
 	jmp		.print_checkmate_msg
@@ -253,6 +264,18 @@ _main:
 	
 .show_err_in_check:
 	push		err_in_check
+	call		_printf
+	add		esp, 4
+	jmp		.main_loop
+	
+.show_err_no_promotion:
+	push		err_no_promotion
+	call		_printf
+	add		esp, 4
+	jmp		.main_loop
+	
+.show_err_promotion:
+	push		err_promotion
 	call		_printf
 	add		esp, 4
 	jmp		.main_loop

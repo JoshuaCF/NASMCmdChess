@@ -43,6 +43,8 @@ board_bfr:
 ; 1 = error - invalid castling
 ; 2 = error - self capturing
 ; 3 = error - in check
+; 4 = error - no promotion
+; 5 = error - promotion
 _checkMove:
 .prolog:
 	push		ebp
@@ -54,6 +56,7 @@ _checkMove:
 	push		edi
 	
 .body:	; Nothing jumps to this label, but it will get put as a symbol in the debug file. Helps for separating out the actual body of this subroutine from the prologue.
+	; If there's a better way to do this, I don't know it.
 	mov		edi, [ebp+12]		; pmove ptr
 	mov		ebx, [ebp+8]		; board ptr
 	
@@ -404,13 +407,44 @@ _checkMove:
 	call		_makeMove
 	add		esp, 8
 	
-	; Call _isCheck and check the result. If eax == 1, jmp to .invalid_in_check
+	; Call _isCheck and check the result. If eax != 0, jmp to .invalid_in_check
 	push		board_bfr
 	call		_isCheck
 	add		esp, 4
 	cmp		eax, 0
-	je		.valid
+	je		.look_for_promotion
 	jmp		.invalid_in_check
+	
+.look_for_promotion:
+	mov		ebx, [ebp+12] ; pmove
+	
+	; If there's a promotion, jump to .promotion_found
+	mov		al, [ebx+pm_promotion]
+	cmp		al, 0x0
+	jne		.promotion_found
+	
+.no_promotion_found:
+	; If the move isn't a pawn move, this doesn't matter
+	mov		al, [ebx+pm_piece]
+	cmp		al, 'P'
+	jne		.valid
+	
+	; If it is a pawn move and it's on rank 1 or 8, this is missing a promotion
+	mov		al, [ebx+pm_destination_rank]
+	cmp		al, '1'
+	je		.invalid_no_promotion
+	cmp		al, '8'
+	je		.invalid_no_promotion
+	jmp		.valid
+
+.promotion_found:
+	; If the destination is on rank 1 or 8, this is valid
+	mov		al, [ebx+pm_destination_rank]
+	cmp		al, '1'
+	je		.valid
+	cmp		al, '8'
+	je		.valid
+	jmp		.invalid_promotion
 
 .invalid_castling:
 	mov		eax, 1
@@ -422,6 +456,14 @@ _checkMove:
 	
 .invalid_in_check:
 	mov		eax, 3
+	jmp		.epilog
+
+.invalid_no_promotion:
+	mov		eax, 4
+	jmp		.epilog
+	
+.invalid_promotion:
+	mov		eax, 5
 	jmp		.epilog
 
 .valid:
@@ -1968,6 +2010,45 @@ _makeMove:
 	
 	mov		[edi + gs_board + eax], bl
 	
+.handle_promotion:
+	; If there's a promotion specified, determine the piece that should overwrite the destination
+	mov		ebx, eax
+	mov		al, [esi+pm_promotion]
+	cmp		al, 0x0
+	je		.handle_promotion_skip
+	
+	; Set the team bits of the piece
+	mov		ah, [edi+gs_turn]
+	inc		ah
+	shl		ah, 6
+	
+.handle_promotion_q:
+	cmp		al, 'Q'
+	jne		.handle_promotion_r
+	or		ah, 0b00010000
+	mov		[edi+gs_board+ebx], ah
+	jmp		.handle_promotion_skip
+
+.handle_promotion_r:
+	cmp		al, 'R'
+	jne		.handle_promotion_b
+	or		ah, 0b00001000
+	mov		[edi+gs_board+ebx], ah
+	jmp		.handle_promotion_skip
+	
+.handle_promotion_b:
+	cmp		al, 'B'
+	jne		.handle_promotion_n
+	or		ah, 0b00000100
+	mov		[edi+gs_board+ebx], ah
+	jmp		.handle_promotion_skip
+	
+.handle_promotion_n:
+	or		ah, 0b00000010
+	mov		[edi+gs_board+ebx], ah
+	jmp		.handle_promotion_skip
+	
+.handle_promotion_skip:
 	pop		ecx			; Get the original contents of the destination tile
 	
 	; If it was a pawn move that went across two ranks, then the pawn moved twice and is a valid target for en passant
